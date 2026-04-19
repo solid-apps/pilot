@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pilot — your Solid console</title>
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  :root {
+    --bg: #f5f5f9;
+    --text: #222;
+    --muted: #888;
+    --card: #fff;
+    --border: #e8e8ee;
+    --shadow: 0 1px 2px rgba(0,0,0,.03);
+    --rail-bg: #1e1b2e;
+    --rail-text: #e9e8f3;
+    --rail-muted: #c9c6dc;
+    --rail-hover: #2a2640;
+  }
+  html[data-theme="dark"] {
+    --bg: #15131f;
+    --text: #e9e8f3;
+    --muted: #8d8aa4;
+    --card: #1e1b2e;
+    --border: #2a2640;
+    --shadow: 0 1px 2px rgba(0,0,0,.35);
+    --rail-bg: #0f0d18;
+    --rail-muted: #8d8aa4;
+    --rail-hover: #1e1b2e;
+  }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg); color: var(--text);
+    transition: background .2s, color .2s;
+  }
+
+  /* Shell */
+  .shell {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100vh;
+  }
+  .rail {
+    background: var(--rail-bg);
+    color: var(--rail-text);
+    padding: 28px 18px;
+    border-right: 1px solid rgba(0,0,0,.4);
+    position: sticky; top: 0; align-self: start; min-height: 100vh;
+  }
+  .brand {
+    font: 700 18px/1 'Inter', sans-serif;
+    margin-bottom: 28px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .brand .logo {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #fff;
+  }
+  .nav { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+  .nav a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px;
+    color: var(--rail-muted); text-decoration: none;
+    font-size: 14px; font-weight: 500;
+    transition: background .14s, color .14s;
+  }
+  .nav a:hover { background: var(--rail-hover); color: #fff; }
+  .nav a.active { background: linear-gradient(135deg, #7c3aed, #6366f1); color: #fff; }
+  .nav .ic { font-size: 16px; }
+
+  main {
+    padding: 40px 32px 80px;
+    max-width: 1060px;
+    width: 100%;
+  }
+
+  @media (max-width: 760px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { position: static; min-height: 0; padding: 16px 20px; display: flex; align-items: center; gap: 20px; }
+    .brand { margin-bottom: 0; }
+    .nav { flex-direction: row; gap: 4px; flex: 1; }
+    .nav .ic { display: none; }
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    box-shadow: var(--shadow);
+  }
+  .card + .card { margin-top: 18px; }
+
+  /* Two-column grid for Profile view */
+  .two-col {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 18px; align-items: start;
+  }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* Profile bits */
+  .hero { display: flex; gap: 22px; align-items: flex-start; }
+  .photo, .photo-fallback { width: 120px; height: 120px; border-radius: 16px; flex: 0 0 auto; }
+  .photo { object-fit: cover; background: #eef; }
+  .photo-fallback {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff; font: 600 52px/120px Georgia, serif;
+    text-align: center;
+  }
+  .name { font: 700 26px/1.2 'Inter', sans-serif; color: #1a1a1a; letter-spacing: -0.3px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .pronoun { font: 400 14px/1; color: #6366f1; }
+  .facts { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: #444; }
+  @media (max-width: 600px) { .facts { grid-template-columns: 1fr; } }
+  .fact { display: flex; align-items: center; gap: 8px; }
+  .fact .ic { opacity: .55; }
+  .fact a { color: inherit; text-decoration: none; }
+  .fact a:hover { color: #6366f1; }
+
+  .section-title { font: 700 17px/1.2 'Inter', sans-serif; color: #1a1a1a; margin-bottom: 12px; }
+  .prose { font: 400 15px/1.65 Georgia, serif; color: #333; }
+  .side-title { font: 700 15px/1 'Inter', sans-serif; color: #1a1a1a; margin-bottom: 12px; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill { padding: 3px 11px; border-radius: 999px; background: #eef0fe; color: #4338ca; font-size: 13px; font-weight: 500; }
+  .list-plain { list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #333; }
+
+  /* Contacts grid */
+  .page-title { font: italic 400 36px/1.1 Georgia, serif; color: #1a1a1a; letter-spacing: -0.6px; margin-bottom: 4px; }
+  .page-sub { font: 400 14px/1.5 'Inter', -apple-system, sans-serif; color: #888; margin-bottom: 8px; }
+  .page-count { font: 600 11px/1 'Inter'; letter-spacing: .12em; text-transform: uppercase; color: #999; margin-bottom: 22px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .contact-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; display: flex; gap: 12px; align-items: center;
+    text-decoration: none; color: inherit; transition: transform .16s, border-color .16s, box-shadow .16s;
+  }
+  .contact-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,.06); border-color: #6366f1; }
+  .avatar, .avatar-fb { width: 48px; height: 48px; border-radius: 50%; flex: 0 0 auto; }
+  .avatar { object-fit: cover; }
+  .avatar-fb {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff; font: 600 19px/48px Georgia, serif;
+    text-align: center;
+  }
+  .c-name { font: 600 15px/1.2 'Inter'; color: #1a1a1a; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c-sub { font: 400 12.5px/1.4 'Inter'; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Calendar card */
+  .ev-card {
+    display: flex; gap: 24px; align-items: flex-start;
+  }
+  .ev-date { flex: 0 0 auto; width: 88px; border: 1px solid #e8e8ee; border-radius: 12px; overflow: hidden; text-align: center; }
+  .ev-month { background: #ef4444; color: #fff; font: 600 12px/1 'Inter'; padding: 7px; letter-spacing: .18em; text-transform: uppercase; }
+  .ev-day { font: 500 40px/1 Georgia, serif; color: #1a1a1a; padding: 14px 0; background: #fafaf8; }
+  .ev-meta { flex: 1; min-width: 0; }
+  .ev-name { font: 500 24px/1.2 Georgia, serif; color: #1a1a1a; letter-spacing: -0.3px; margin-bottom: 6px; }
+  .ev-when { font: 500 13px/1.4 'Inter'; color: #666; margin-bottom: 16px; }
+  .ev-summary { font: 400 15px/1.6 Georgia, serif; color: #444; margin-bottom: 16px; }
+  .ev-row { display: flex; gap: 8px; align-items: center; padding-top: 12px; margin-top: 12px; border-top: 1px solid #e8e8ee; font: 400 13px/1.4 'Inter'; color: #666; }
+  .ev-row + .ev-row { border-top: none; padding-top: 0; margin-top: 5px; }
+  .ev-row a { color: #1a5276; text-decoration: none; }
+  .ev-row a:hover { color: #6366f1; }
+  .ev-row .ic { opacity: 0.6; }
+
+  .footer-tag {
+    margin-top: 28px; text-align: center;
+    font: 500 11px/1.4 ui-monospace, monospace;
+    color: #888; letter-spacing: 0.05em;
+  }
+  .footer-tag code { padding: 2px 7px; border-radius: 4px; background: #eef0fe; color: #4338ca; }
+
+  /* Settings view */
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 0; gap: 16px;
+  }
+  .settings-row + .settings-row { border-top: 1px solid var(--border); }
+  .settings-label { font: 500 14px/1.4 'Inter'; color: var(--text); }
+  .settings-help  { font: 400 12.5px/1.4 'Inter'; color: var(--muted); margin-top: 2px; }
+  .seg {
+    display: inline-flex; padding: 3px; border-radius: 999px;
+    background: var(--bg); border: 1px solid var(--border);
+  }
+  .seg button {
+    padding: 6px 14px; border: 0; background: transparent;
+    font: 500 13px/1 'Inter'; color: var(--muted);
+    border-radius: 999px; cursor: pointer;
+  }
+  .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .settings-input {
+    padding: 8px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    font: 400 13px/1.4 ui-monospace, monospace;
+    width: 320px; max-width: 60%; outline: none;
+  }
+  .settings-input:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,.18); }
+  .island-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 0; font: 400 13px/1.4 ui-monospace, monospace;
+    color: var(--muted);
+  }
+  .island-row + .island-row { border-top: 1px solid var(--border); }
+  .island-badge { padding: 2px 9px; border-radius: 6px; background: #eef0fe; color: #4338ca; font-weight: 600; font-size: 12px; }
+
+  /* Tasks kanban */
+  .columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 18px; }
+  .col { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; box-shadow: var(--shadow); min-height: 240px; }
+  .col-head { display: flex; align-items: baseline; gap: 10px; padding: 0 4px 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .col-title { font: 700 16px/1 'Inter'; color: var(--text); }
+  .col-count { font: 600 11px/1 'Inter'; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .col-status { margin-left: auto; font: 500 11px/1 'Inter'; color: var(--muted); }
+  .col-status.saving { color: #f59e0b; }
+  .col-status.saved  { color: #10b981; }
+  .col-status.error  { color: #ef4444; }
+  .issues { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; }
+  .issue { display: flex; align-items: flex-start; gap: 10px; padding: 7px 6px; border-radius: 8px; transition: background .12s; }
+  .issue:hover { background: rgba(99,102,241,.04); }
+  .issue.done .summary { color: var(--muted); text-decoration: line-through; }
+  .check { width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid #c8c8d0; background: #fff; flex: 0 0 auto; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: transparent; margin-top: 2px; transition: all .12s; }
+  .check:hover { border-color: #6366f1; }
+  .check.on { background: #10b981; border-color: #10b981; color: #fff; }
+  .summary { flex: 1; min-width: 0; word-break: break-word; cursor: text; padding: 1px 4px; margin: -1px -4px; border-radius: 4px; font: 400 14px/1.4 'Inter'; }
+  .summary:hover { background: rgba(0,0,0,.03); }
+  .summary.editing { background: #fff; padding: 0; margin: 0; }
+  .summary input { width: 100%; padding: 1px 4px; border: 1px solid #6366f1; border-radius: 4px; font: inherit; outline: none; box-shadow: 0 0 0 2px rgba(99,102,241,.18); }
+  .del { opacity: 0; transition: opacity .12s, color .12s; cursor: pointer; padding: 0 4px; color: var(--muted); font-size: 16px; line-height: 1; flex: 0 0 auto; }
+  .issue:hover .del { opacity: 1; }
+  .del:hover { color: #ef4444; }
+  .add-row { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+  .add-row input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font: 400 14px/1.4 'Inter'; outline: none; background: var(--bg); }
+  .add-row input:focus { border-color: #6366f1; background: var(--card); box-shadow: 0 0 0 2px rgba(99,102,241,.18); }
+  .err { background: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 8px; font: 400 13px/1.4 'Inter'; }
+
+  /* Onboarding */
+  .onboard {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 32px 20px;
+    background:
+      radial-gradient(circle at 25% 0%, rgba(99,102,241,0.10) 0%, transparent 45%),
+      radial-gradient(circle at 75% 100%, rgba(16,185,129,0.08) 0%, transparent 45%),
+      var(--bg);
+  }
+  .onboard-card {
+    max-width: 480px; width: 100%;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 18px; padding: 44px 36px;
+    text-align: center;
+    box-shadow: 0 18px 60px rgba(0,0,0,.06);
+  }
+  .onboard-logo { font-size: 48px; line-height: 1; margin-bottom: 14px; }
+  .onboard-title { font: 700 32px/1 'Inter'; color: var(--text); letter-spacing: -0.5px; margin-bottom: 10px; }
+  .onboard-tag   { font: 400 15px/1.55 'Inter'; color: var(--muted); margin-bottom: 28px; }
+  .onboard-list {
+    text-align: left; margin: 0 auto 28px; max-width: 340px;
+    display: flex; flex-direction: column; gap: 8px;
+    font: 400 14px/1.55 'Inter'; color: var(--text);
+  }
+  .onboard-list strong { color: #4338ca; font-weight: 600; }
+  .onboard-cta {
+    padding: 14px 18px; border-radius: 10px;
+    background: #eef0fe; color: #4338ca;
+    font: 500 13.5px/1.5 'Inter';
+  }
+
+  /* EditableText (Profile) */
+  .e { cursor: text; border-radius: 4px; padding: 1px 5px; margin: -1px -5px; transition: background .12s ease; outline: none; display: inline-block; max-width: 100%; }
+  .e:hover { background: #eef0fe; }
+  .e.empty { color: #aaa; font-style: italic; }
+  .e-block { display: block; }
+  .e-input, .e-area { border: 1px solid #6366f1; border-radius: 4px; padding: 2px 6px; font: inherit; color: inherit; outline: none; background: #fff; width: 100%; box-shadow: 0 0 0 2px rgba(99,102,241,.18); }
+  .e-area { min-height: 6em; resize: vertical; line-height: 1.65; font-family: Georgia, serif; }
+</style>
+</head>
+<body>
+
+<!-- xlogin: mounts its own floating Login/Sign in button in the bottom-right
+     and exposes window.xlogin.{type,id,authFetch} + document events
+     'xlogin' / 'xlogout'. -->
+<script src="https://unpkg.com/xlogin"></script>
+
+<div id="app"></div>
+
+<script type="module">
+import { h, render } from 'https://esm.sh/preact@10'
+import { useState, useEffect, useCallback, useRef } from 'https://esm.sh/preact@10/hooks'
+import htm from 'https://esm.sh/htm@3'
+
+const html = htm.bind(h)
+
+// --- xlogin integration ----------------------------------------------------
+// Listens for 'xlogin'/'xlogout' events and exposes the current identity.
+
+function useXlogin() {
+  const [identity, setIdentity] = useState(() =>
+    window.xlogin && window.xlogin.id ? { type: window.xlogin.type, id: window.xlogin.id } : null
+  )
+  useEffect(() => {
+    const onIn  = (e) => setIdentity({ type: e.detail.type, id: e.detail.id })
+    const onOut = () => setIdentity(null)
+    document.addEventListener('xlogin',  onIn)
+    document.addEventListener('xlogout', onOut)
+    // Late-load: xlogin script may attach window.xlogin after our first render.
+    const t = setInterval(() => {
+      if (window.xlogin && window.xlogin.id && !identity)
+        setIdentity({ type: window.xlogin.type, id: window.xlogin.id })
+    }, 500)
+    return () => { document.removeEventListener('xlogin', onIn); document.removeEventListener('xlogout', onOut); clearInterval(t) }
+  }, [])
+  return identity
+}
+
+// Fetch a Solid WebID document as JSON-LD. Most Solid pods serve Turtle by
+// default; we rely on content negotiation via Accept: application/ld+json.
+// Pods that don't support JSON-LD output will fail here — that's a finding,
+// not a bug; stage 5 or later may introduce a lightweight Turtle parser.
+// Normalize a JSON-LD subject against common name/contact predicates so our
+// UI (which expects bare keys like `name`, `email`, `img`) can render it.
+// Handles both compact and expanded IRIs for foaf/vcard.
+const PREDICATES = {
+  name:     ['name', 'foaf:name', 'http://xmlns.com/foaf/0.1/name', 'vcard:fn', 'http://www.w3.org/2006/vcard/ns#fn'],
+  nick:     ['nick', 'foaf:nick', 'http://xmlns.com/foaf/0.1/nick'],
+  email:    ['email', 'foaf:mbox', 'http://xmlns.com/foaf/0.1/mbox', 'vcard:hasEmail', 'http://www.w3.org/2006/vcard/ns#hasEmail'],
+  homepage: ['homepage', 'foaf:homepage', 'http://xmlns.com/foaf/0.1/homepage', 'vcard:hasURL', 'http://www.w3.org/2006/vcard/ns#hasURL'],
+  img:      ['img', 'foaf:img', 'http://xmlns.com/foaf/0.1/img', 'foaf:depiction', 'http://xmlns.com/foaf/0.1/depiction', 'vcard:hasPhoto', 'http://www.w3.org/2006/vcard/ns#hasPhoto'],
+}
+function valueOf(v) {
+  if (!v) return null
+  if (typeof v === 'string') return v
+  if (Array.isArray(v)) return v.length ? valueOf(v[0]) : null
+  return v['@id'] || v['@value'] || null
+}
+function pickValue(obj, preds) {
+  for (const p of preds) if (obj[p] != null) { const v = valueOf(obj[p]); if (v) return v }
+  return null
+}
+function normalizeProfile(jsonld) {
+  const out = { '@id': jsonld['@id'], '@type': jsonld['@type'] }
+  for (const [field, preds] of Object.entries(PREDICATES)) {
+    const v = pickValue(jsonld, preds)
+    if (v) out[field] = field === 'email' ? v.replace(/^mailto:/, '') : v
+  }
+  return out
+}
+
+async function fetchWebidProfile(webid) {
+  const url = webid.replace(/#.*$/, '')  // strip fragment
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  const res = await fetcher(url, { headers: { Accept: 'application/ld+json' } })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  const ct = res.headers.get('content-type') || ''
+  if (!ct.includes('ld+json') && !ct.includes('application/json'))
+    throw new Error(`pod returned ${ct || 'unknown type'}; need application/ld+json (Turtle support = later stage)`)
+  const doc = await res.json()
+  // JSON-LD profiles vary: could be a single object, a @graph array, or a
+  // framed doc. Grab the subject matching the webid's fragment, else first.
+  const frag = webid.includes('#') ? webid.split('#')[1] : null
+  const graph = Array.isArray(doc['@graph']) ? doc['@graph'] : (Array.isArray(doc) ? doc : [doc])
+  const match = frag ? graph.find(n => (n['@id'] || '').endsWith('#' + frag)) : graph[0]
+  return normalizeProfile(match || graph[0])
+}
+
+function useProfileFor(webid) {
+  const [state, setState] = useState({ loading: false, error: null, data: null })
+  useEffect(() => {
+    if (!webid) { setState({ loading: false, error: null, data: null }); return }
+    let cancelled = false
+    setState({ loading: true, error: null, data: null })
+    fetchWebidProfile(webid)
+      .then(data => { if (!cancelled) setState({ loading: false, error: null, data }) })
+      .catch(err => { if (!cancelled) setState({ loading: false, error: err.message, data: null }) })
+    return () => { cancelled = true }
+  }, [webid])
+  return state
+}
+
+// --- TypeIndex discovery ---------------------------------------------------
+// 1. Fetch WebID, find solid:publicTypeIndex URL.
+// 2. Fetch the TypeIndex (JSON-LD).
+// 3. Walk schema:itemListElement (or any TypeRegistration nodes) and pull
+//    out registrations with both solid:forClass and either solid:instance
+//    or solid:instanceContainer.
+
+async function fetchJsonLd(url) {
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  const res = await fetcher(url, { headers: { Accept: 'application/ld+json' } })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  const ct = res.headers.get('content-type') || ''
+  if (!ct.includes('ld+json') && !ct.includes('application/json'))
+    throw new Error(`pod returned ${ct} (need JSON-LD)`)
+  return res.json()
+}
+
+async function putJsonLd(url, body) {
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  const r = await fetcher(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/ld+json' },
+    body: JSON.stringify(body, null, 2),
+  })
+  if (!r.ok) throw new Error(`PUT failed: ${r.status} ${r.statusText}`)
+  return r
+}
+
+const idOf = (v) => typeof v === 'string' ? v : (v && v['@id']) || null
+
+async function fetchTypeIndex(webid) {
+  const webidDoc = await fetchJsonLd(webid.replace(/#.*$/, ''))
+  const graph = Array.isArray(webidDoc['@graph']) ? webidDoc['@graph'] : (Array.isArray(webidDoc) ? webidDoc : [webidDoc])
+  const frag = webid.includes('#') ? webid.split('#')[1] : null
+  const me = (frag ? graph.find(n => (n['@id'] || '').endsWith('#' + frag)) : null) || graph[0]
+
+  const tiRef = me['solid:publicTypeIndex'] || me['http://www.w3.org/ns/solid/terms#publicTypeIndex']
+  const tiId = idOf(tiRef)
+  if (!tiId) throw new Error('no solid:publicTypeIndex on WebID')
+
+  // Resolve relative URL against the WebID doc URL.
+  const tiUrl = new URL(tiId, webid).href
+  const ti = await fetchJsonLd(tiUrl)
+
+  // Collect registration nodes — they may be inside schema:itemListElement,
+  // a @graph, or scattered. Anything with solid:forClass + (instance|container).
+  const nodes = []
+  const collect = (x) => {
+    if (!x || typeof x !== 'object') return
+    if (Array.isArray(x)) { x.forEach(collect); return }
+    if (x['solid:forClass'] || x['http://www.w3.org/ns/solid/terms#forClass']) nodes.push(x)
+    for (const v of Object.values(x)) if (typeof v === 'object') collect(v)
+  }
+  collect(ti)
+
+  return { typeIndexUrl: tiUrl, registrations: nodes.map(n => ({
+    forClass:          idOf(n['solid:forClass'] || n['http://www.w3.org/ns/solid/terms#forClass']),
+    instance:          idOf(n['solid:instance'] || n['http://www.w3.org/ns/solid/terms#instance']),
+    instanceContainer: idOf(n['solid:instanceContainer'] || n['http://www.w3.org/ns/solid/terms#instanceContainer']),
+  })).filter(r => r.forClass && (r.instance || r.instanceContainer)) }
+}
+
+function useTypeIndex(webid) {
+  const [state, setState] = useState({ loading: false, error: null, data: null })
+  useEffect(() => {
+    if (!webid) { setState({ loading: false, error: null, data: null }); return }
+    let cancelled = false
+    setState({ loading: true, error: null, data: null })
+    fetchTypeIndex(webid)
+      .then(data => { if (!cancelled) setState({ loading: false, error: null, data }) })
+      .catch(err => { if (!cancelled) setState({ loading: false, error: err.message, data: null }) })
+    return () => { cancelled = true }
+  }, [webid])
+  return state
+}
+
+function findRegistrations(typeIndex, classIri) {
+  if (!typeIndex) return []
+  return typeIndex.registrations.filter(r => r.forClass === classIri)
+}
+
+// Fetch a list of instance URLs (from registrations) and return their parsed bodies.
+function useInstances(urls) {
+  const key = JSON.stringify(urls || [])
+  const [state, setState] = useState({ loading: false, error: null, data: null })
+  useEffect(() => {
+    if (!urls || urls.length === 0) { setState({ loading: false, error: null, data: null }); return }
+    let cancelled = false
+    setState({ loading: true, error: null, data: null })
+    Promise.all(urls.map(u => fetchJsonLd(u.replace(/#.*$/, '')).then(doc => ({ url: u, doc })).catch(err => ({ url: u, error: err.message }))))
+      .then(results => { if (!cancelled) setState({ loading: false, error: null, data: results }) })
+      .catch(err => { if (!cancelled) setState({ loading: false, error: err.message, data: null }) })
+    return () => { cancelled = true }
+  }, [key])
+  return state
+}
+
+// --- routing ---------------------------------------------------------------
+
+function useHashRoute(fallback) {
+  const parse = () => (window.location.hash || '').replace(/^#\/?/, '') || fallback
+  const [route, setRoute] = useState(parse)
+  useEffect(() => {
+    const onChange = () => setRoute(parse())
+    window.addEventListener('hashchange', onChange)
+    return () => window.removeEventListener('hashchange', onChange)
+  }, [])
+  return route
+}
+
+// --- view: Profile --------------------------------------------------------
+
+const niceLink = (u) => (u || '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')
+const initial  = (s) => (s || '?').trim().split(/\s+/).pop().charAt(0).toUpperCase()
+
+// useState-driven img with fallback. Avoids DOM-swap closures that break
+// across re-renders. If src changes, error state resets.
+function Avatar({ src, name }) {
+  const [errored, setErrored] = useState(false)
+  useEffect(() => { setErrored(false) }, [src])
+  if (!src || errored) return html`<div class="photo-fallback">${initial(name)}</div>`
+  return html`<img class="photo" src=${src} alt=${name} onError=${() => setErrored(true)} />`
+}
+
+// Click-to-edit text — same primitive as stage 2 but trimmed.
+function EditableText({ value, placeholder, onChange, multiline, block }) {
+  const [editing, setEditing] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => { if (editing && ref.current) { ref.current.focus(); if (ref.current.select && !multiline) ref.current.select() } }, [editing])
+  if (editing) {
+    const commit = () => { onChange(ref.current.value); setEditing(false) }
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+      if (e.key === 'Enter' && !multiline) { e.preventDefault(); commit() }
+    }
+    return multiline
+      ? html`<textarea ref=${ref} class="e-area" onBlur=${commit} onKeyDown=${onKey}>${value || ''}</textarea>`
+      : html`<input ref=${ref} class="e-input" type="text" defaultValue=${value || ''} onBlur=${commit} onKeyDown=${onKey} />`
+  }
+  const isEmpty = !value
+  const cls = `e ${block ? 'e-block' : ''} ${isEmpty ? 'empty' : ''}`.trim()
+  return html`<span class=${cls} tabIndex="0" onClick=${() => setEditing(true)} onFocus=${() => setEditing(true)}>${isEmpty ? (placeholder || '\u2014') : value}</span>`
+}
+
+// --- editable WebID profile -------------------------------------------------
+// Tracks the FULL fetched doc so PUTs preserve pod-only fields (oidcIssuer,
+// storage, sameAs, etc.). Edits target the matching subject node. Field-name
+// → predicate alias list for read; canonical predicate for write.
+
+const EDIT_PREDICATES = {
+  name:     ['name', 'foaf:name', 'http://xmlns.com/foaf/0.1/name', 'vcard:fn', 'http://www.w3.org/2006/vcard/ns#fn'],
+  nick:     ['nick', 'foaf:nick', 'http://xmlns.com/foaf/0.1/nick'],
+  email:    ['email', 'foaf:mbox', 'http://xmlns.com/foaf/0.1/mbox'],
+  homepage: ['homepage', 'foaf:homepage', 'http://xmlns.com/foaf/0.1/homepage'],
+  img:      ['img', 'foaf:img', 'http://xmlns.com/foaf/0.1/img'],
+  bio:      ['bio', 'vcard:note', 'http://www.w3.org/2006/vcard/ns#note'],
+}
+const CANONICAL = {
+  name: 'foaf:name', nick: 'foaf:nick', email: 'foaf:mbox',
+  homepage: 'foaf:homepage', img: 'foaf:img', bio: 'vcard:note',
+}
+const URI_FIELDS = new Set(['homepage', 'img'])
+
+function findSubject(doc, webid) {
+  if (Array.isArray(doc)) return doc[0]
+  if (Array.isArray(doc['@graph'])) {
+    const frag = webid.includes('#') ? '#' + webid.split('#')[1] : null
+    return (frag && doc['@graph'].find(n => (n['@id'] || '').endsWith(frag))) || doc['@graph'][0]
+  }
+  return doc
+}
+
+function readField(subject, field) {
+  for (const p of EDIT_PREDICATES[field] || []) {
+    const v = subject[p]
+    if (v == null) continue
+    if (typeof v === 'string') return v.replace(/^mailto:/, '')
+    if (Array.isArray(v) && v.length) return typeof v[0] === 'string' ? v[0].replace(/^mailto:/,'') : (v[0]['@id'] || v[0]['@value'])
+    if (v['@id']) return v['@id']
+    if (v['@value']) return v['@value']
+  }
+  return ''
+}
+
+function writeField(subject, field, value) {
+  // Try existing predicate first
+  for (const p of EDIT_PREDICATES[field] || []) {
+    if (subject[p] != null) {
+      if (!value) { delete subject[p]; return }
+      const wrapped = field === 'email' ? (value.startsWith('mailto:') ? value : 'mailto:' + value)
+                    : (URI_FIELDS.has(field) && typeof subject[p] === 'object' && !Array.isArray(subject[p])) ? { '@id': value }
+                    : value
+      subject[p] = wrapped
+      return
+    }
+  }
+  // Add under canonical predicate
+  if (!value) return
+  const canon = CANONICAL[field]
+  if (!canon) return
+  subject[canon] = field === 'email' ? 'mailto:' + value : value
+}
+
+function useEditableProfile(webid) {
+  const [state, setState] = useState({ loading: !!webid, doc: null, error: null, status: '' })
+  const saveTimer = useRef(null)
+  useEffect(() => {
+    if (!webid) { setState({ loading: false, doc: null, error: null, status: '' }); return }
+    let cancelled = false
+    setState({ loading: true, doc: null, error: null, status: '' })
+    fetchJsonLd(webid.replace(/#.*$/, ''))
+      .then(doc => { if (!cancelled) setState({ loading: false, doc, error: null, status: '' }) })
+      .catch(err => { if (!cancelled) setState({ loading: false, doc: null, error: err.message, status: '' }) })
+    return () => { cancelled = true }
+  }, [webid])
+
+  const scheduleSave = useCallback((doc) => {
+    setState(s => ({ ...s, status: 'saving' }))
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      putJsonLd(webid.replace(/#.*$/, ''), doc)
+        .then(() => setState(s => ({ ...s, status: 'saved' })))
+        .catch(err => setState(s => ({ ...s, status: 'error', error: err.message })))
+    }, 700)
+  }, [webid])
+
+  const setField = useCallback((field, value) => {
+    setState(s => {
+      if (!s.doc) return s
+      const next = JSON.parse(JSON.stringify(s.doc))
+      const subj = findSubject(next, webid)
+      writeField(subj, field, (value || '').trim())
+      scheduleSave(next)
+      return { ...s, doc: next, status: 'saving' }
+    })
+  }, [webid, scheduleSave])
+
+  // Synthesize a flat data view for the UI from the current doc
+  const data = state.doc ? (() => {
+    const subj = findSubject(state.doc, webid) || {}
+    const out = { '@id': subj['@id'], '@type': subj['@type'] }
+    for (const f of Object.keys(EDIT_PREDICATES)) {
+      const v = readField(subj, f)
+      if (v) out[f] = v
+    }
+    return out
+  })() : null
+
+  return { ...state, data, setField }
+}
+
+function EmptyFact({ icon, text }) {
+  return html`<div class="fact" style=${{ opacity: 0.5, fontStyle: 'italic' }}><span class="ic">${icon}</span><span>${text}</span></div>`
+}
+
+function ProfileView({ identity }) {
+  const webid = identity.id
+  const editable = useEditableProfile(webid)
+  const data = editable.data || {}
+  const { name, address, email, phone, homepage, img, bio } = data
+  const save = editable.status
+  const set  = editable.setField
+
+  if (editable.loading) return html`<div style=${{ color: 'var(--muted)' }}>Loading your WebID\u2026</div>`
+  if (editable.error && !editable.data) return html`<div class="err">${editable.error}</div>`
+
+  return html`
+    <div>
+    <div style=${{ marginBottom: '14px', display: 'flex', gap: '10px', alignItems: 'center', fontSize: '12px', color: 'var(--muted)', flexWrap: 'wrap' }}>
+      <span class="island-badge" style=${{ background: '#d1fae5', color: '#065f46' }}>live</span>
+      <span>Fetched from <code>${webid}</code></span>
+      ${save && html`<span style=${{ marginLeft: 'auto', color: save === 'saving' ? '#f59e0b' : save === 'saved' ? '#10b981' : '#ef4444' }}>${save === 'saving' ? '\u2026 saving' : save === 'saved' ? '\u2713 saved to pod' : '\u26a0 ' + (editable.error || 'error')}</span>`}
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="card">
+          <div class="hero">
+            <${Avatar} src=${img} name=${name} />
+            <div>
+              <h1 class="name">
+                <${EditableText} value=${name} placeholder="Add name" onChange=${(v) => set('name', v)} />
+              </h1>
+              <div class="facts">
+                <div class="fact"><span class="ic">\u{1F4CD}</span><${EditableText} value=${address}  placeholder="Add address"  onChange=${(v) => set('address', v)}  /></div>
+                <div class="fact"><span class="ic">\u{260E}\uFE0F</span><${EditableText} value=${phone}    placeholder="Add phone"    onChange=${(v) => set('phone', v)}    /></div>
+                <div class="fact"><span class="ic">\u{2709}\uFE0F</span><${EditableText} value=${email}    placeholder="Add email"    onChange=${(v) => set('email', v)}    /></div>
+                <div class="fact"><span class="ic">\u{1F310}</span><${EditableText} value=${homepage} placeholder="Add homepage" onChange=${(v) => set('homepage', v)} /></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card"><h2 class="section-title">Bio</h2><p class="prose"><${EditableText} value=${bio} placeholder="Click to add a bio (writes to vcard:note)" multiline=${true} block=${true} onChange=${(v) => set('bio', v)} /></p></div>
+      </div>
+    </div>
+    </div>
+  `
+}
+
+
+// --- view: Tasks (full CRUD on wf:Tracker resources) -----------------------
+
+const TRACKER_CLASS = 'http://www.w3.org/2005/01/wf/flow#Tracker'
+
+function useTracker(url) {
+  const [state, setState] = useState({ loading: !!url, doc: null, error: null, status: '' })
+  const saveTimer = useRef(null)
+  useEffect(() => {
+    if (!url) return
+    let cancelled = false
+    fetchJsonLd(url.replace(/#.*$/, ''))
+      .then(doc => { if (!cancelled) setState(s => ({ ...s, loading: false, doc })) })
+      .catch(err => { if (!cancelled) setState(s => ({ ...s, loading: false, error: err.message })) })
+    return () => { cancelled = true }
+  }, [url])
+
+  const scheduleSave = useCallback((doc) => {
+    setState(s => ({ ...s, status: 'saving' }))
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      putJsonLd(url.replace(/#.*$/, ''), doc)
+        .then(() => setState(s => ({ ...s, status: 'saved' })))
+        .catch(err => setState(s => ({ ...s, status: 'error', error: err.message })))
+    }, 500)
+  }, [url])
+
+  const mutate = useCallback((fn) => {
+    setState(s => {
+      if (!s.doc) return s
+      const next = fn(s.doc)
+      scheduleSave(next)
+      return { ...s, doc: next, status: 'saving' }
+    })
+  }, [scheduleSave])
+
+  const issuesOf = (d) => Array.isArray(d.issue) ? d.issue : (d.issue ? [d.issue] : [])
+  const setIssues = (d, xs) => ({ ...d, issue: xs })
+  const nowIso = () => new Date().toISOString()
+
+  return {
+    ...state,
+    addIssue:    (summary)         => mutate(d => setIssues(d, [...issuesOf(d), {
+      '@id': `#Iss${Date.now()}`,
+      '@type': d.issue?.[0]?.['@type'] || 'Vtodo',
+      summary, status: d.initialState || 'NEEDS-ACTION',
+      created: nowIso(), modified: nowIso(),
+    }])),
+    toggleIssue: (id)              => mutate(d => setIssues(d, issuesOf(d).map(it => it['@id'] === id
+      ? { ...it, status: it.status === 'COMPLETED' ? 'NEEDS-ACTION' : 'COMPLETED', modified: nowIso() } : it))),
+    editIssue:   (id, summary)     => mutate(d => setIssues(d, issuesOf(d).map(it => it['@id'] === id
+      ? { ...it, summary, modified: nowIso() } : it))),
+    deleteIssue: (id)              => mutate(d => setIssues(d, issuesOf(d).filter(it => it['@id'] !== id))),
+  }
+}
+
+function IssueRow({ issue, onToggle, onEdit, onDelete }) {
+  const [editing, setEditing] = useState(false)
+  const inputRef = useRef(null)
+  useEffect(() => { if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select() } }, [editing])
+  const done = issue.status === 'COMPLETED'
+  const commit = () => { const v = inputRef.current.value.trim(); if (v && v !== issue.summary) onEdit(v); setEditing(false) }
+  return html`
+    <div class=${'issue ' + (done ? 'done' : '')}>
+      <div class=${'check ' + (done ? 'on' : '')} onClick=${onToggle}>${done ? '\u2713' : ''}</div>
+      ${editing
+        ? html`<div class="summary editing"><input ref=${inputRef} defaultValue=${issue.summary || ''} onBlur=${commit} onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); commit() } if (e.key === 'Escape') { e.preventDefault(); setEditing(false) } }} /></div>`
+        : html`<div class="summary" onClick=${() => setEditing(true)}>${issue.summary || '(untitled)'}</div>`}
+      <div class="del" title="Delete" onClick=${onDelete}>\u00d7</div>
+    </div>`
+}
+
+function TrackerColumn({ url, hideCompleted }) {
+  const t = useTracker(url)
+  const [draft, setDraft] = useState('')
+  const submit = (e) => { e?.preventDefault?.(); const v = draft.trim(); if (!v) return; t.addIssue(v); setDraft('') }
+
+  if (t.loading) return html`<div class="col"><div class="col-head"><div class="col-title">Loading…</div></div></div>`
+  if (t.error && !t.doc) return html`<div class="col"><div class="col-head"><div class="col-title">Error</div></div><div class="err">${t.error}</div></div>`
+  const doc = t.doc || {}
+  const allIssues = Array.isArray(doc.issue) ? doc.issue : (doc.issue ? [doc.issue] : [])
+  const open = allIssues.filter(i => i.status !== 'COMPLETED').length
+  const visible = hideCompleted ? allIssues.filter(i => i.status !== 'COMPLETED') : allIssues
+  return html`
+    <div class="col">
+      <div class="col-head">
+        <div class="col-title">${doc.title || url.split('/').pop()}</div>
+        <div class="col-count">${open}/${allIssues.length}</div>
+        ${t.status && html`<div class=${'col-status ' + t.status}>${t.status === 'saving' ? '\u2026 saving' : t.status === 'saved' ? '\u2713 saved' : '\u26a0 ' + (t.error || 'error')}</div>`}
+      </div>
+      <div class="issues">
+        ${visible.map(it => html`<${IssueRow} key=${it['@id']} issue=${it}
+          onToggle=${() => t.toggleIssue(it['@id'])}
+          onEdit=${(v) => t.editIssue(it['@id'], v)}
+          onDelete=${() => t.deleteIssue(it['@id'])} />`)}
+      </div>
+      <form class="add-row" onSubmit=${submit}>
+        <input type="text" placeholder="+ add task…" value=${draft} onInput=${(e) => setDraft(e.target.value)} />
+      </form>
+    </div>`
+}
+
+const HIDE_KEY = 'solid-preact.hideCompleted'
+
+function TasksView({ identity }) {
+  const webid = identity?.type === 'solid' ? identity.id : null
+  const ti = useTypeIndex(webid)
+  const urls = findRegistrations(ti.data, TRACKER_CLASS).map(r => r.instance).filter(Boolean)
+  const [hideCompleted, setHideCompleted] = useState(() => localStorage.getItem(HIDE_KEY) === '1')
+  useEffect(() => { localStorage.setItem(HIDE_KEY, hideCompleted ? '1' : '0') }, [hideCompleted])
+
+  if (!webid) return html`
+    <div>
+      <h1 class="page-title">Tasks</h1>
+      <p class="page-sub">Sign in to discover trackers in your pod via the public TypeIndex.</p>
+    </div>`
+
+  const status = ti.loading ? 'loading TypeIndex\u2026'
+    : ti.error  ? `error: ${ti.error}`
+    : `${urls.length} tracker${urls.length===1?'':'s'} discovered`
+
+  return html`
+    <div>
+      <div style=${{ marginBottom: '14px', fontSize: '12px', color: 'var(--muted)', display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <span class="island-badge" style=${{ background: '#d1fae5', color: '#065f46' }}>discovery</span>
+        <span>${status}</span>
+        <label style=${{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', color: 'var(--text)' }}>
+          <input type="checkbox" checked=${hideCompleted} onChange=${(e) => setHideCompleted(e.target.checked)} style=${{ accentColor: '#6366f1' }} />
+          <span>Hide completed</span>
+        </label>
+      </div>
+      <h1 class="page-title">Tasks</h1>
+      <p class="page-sub">Discovered via your TypeIndex. All edits PUT back to your pod.</p>
+      ${urls.length === 0 && !ti.loading
+        ? html`<div class="card" style=${{ marginTop: '18px', color: 'var(--muted)' }}>No <code>wf:Tracker</code> registrations in your TypeIndex yet.</div>`
+        : html`<div class="columns">
+            ${urls.map(u => html`<${TrackerColumn} key=${u} url=${u} hideCompleted=${hideCompleted} />`)}
+          </div>`}
+    </div>`
+}
+
+// --- view: Settings --------------------------------------------------------
+
+const THEME_KEY = 'solid-preact.theme'
+const WEBID_KEY = 'solid-preact.webid'
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme
+}
+
+// Restore on load before any render so there's no light→dark flash.
+applyTheme(localStorage.getItem(THEME_KEY) || 'light')
+
+function SettingsView({ identity }) {
+  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light')
+  const [webid, setWebid] = useState(() => localStorage.getItem(WEBID_KEY) || '')
+  const ti = useTypeIndex(identity?.type === 'solid' ? identity.id : null)
+
+  useEffect(() => { localStorage.setItem(THEME_KEY, theme); applyTheme(theme) }, [theme])
+  useEffect(() => { if (webid) localStorage.setItem(WEBID_KEY, webid); else localStorage.removeItem(WEBID_KEY) }, [webid])
+
+  const islands = Array.from(document.querySelectorAll('script[type="application/ld+json"][data-view]')).map(el => {
+    let type = '?', id = '?', count = 0
+    try { const d = JSON.parse(el.textContent); type = d['@type'] || '?'; id = d['@id'] || '?'; count = Object.keys(d).filter(k => !k.startsWith('@')).length } catch {}
+    return { view: el.dataset.view, type, id, count }
+  })
+
+  return html`
+    <div>
+      <h1 class="page-title">Settings</h1>
+      <p class="page-sub">Appearance, identity, and the data islands this SPA has loaded.</p>
+
+      <div class="card" style=${{ marginTop: '18px' }}>
+        <h3 class="side-title">Appearance</h3>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Theme</div>
+            <div class="settings-help">Saved to <code>localStorage</code>. Applied before render so there's no flash.</div>
+          </div>
+          <div class="seg">
+            <button class=${theme === 'light' ? 'on' : ''} onClick=${() => setTheme('light')}>\u2600\uFE0F Light</button>
+            <button class=${theme === 'dark'  ? 'on' : ''} onClick=${() => setTheme('dark')}>\u{1F319} Dark</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="side-title">Identity</h3>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Live login state</div>
+            <div class="settings-help">Via <code>window.xlogin</code>. Updates reactively on <code>xlogin</code> / <code>xlogout</code> events.</div>
+          </div>
+          <div style=${{ textAlign: 'right', fontSize: '13px', lineHeight: 1.5 }}>
+            ${identity
+              ? html`<div><strong style=${{ color: 'var(--text)' }}>${identity.type}</strong></div><div style=${{ fontFamily: 'ui-monospace, monospace', color: 'var(--muted)', wordBreak: 'break-all', maxWidth: '320px' }}>${identity.id}</div>`
+              : html`<span style=${{ color: 'var(--muted)' }}>not signed in</span>`}
+          </div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Saved WebID (fallback)</div>
+            <div class="settings-help">Used if no live login. Persisted to <code>localStorage</code>.</div>
+          </div>
+          <input class="settings-input" type="url" placeholder="https://you.example.org/profile/card#me" value=${webid} onInput=${(e) => setWebid(e.target.value)} />
+        </div>
+      </div>
+
+      ${identity?.type === 'solid' && html`
+      <div class="card">
+        <h3 class="side-title">TypeIndex registrations</h3>
+        ${ti.loading && html`<div style=${{ color: 'var(--muted)', fontSize: '13px' }}>Loading\u2026</div>`}
+        ${ti.error   && html`<div style=${{ color: '#991b1b', fontSize: '13px' }}>${ti.error}</div>`}
+        ${ti.data && html`
+          <div style=${{ fontSize: '12px', color: 'var(--muted)', marginBottom: '10px', fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}>${ti.data.typeIndexUrl}</div>
+          ${ti.data.registrations.length === 0
+            ? html`<div style=${{ color: 'var(--muted)', fontSize: '13px', fontStyle: 'italic' }}>No populated registrations.</div>`
+            : ti.data.registrations.map(r => html`
+                <div class="island-row">
+                  <span class="island-badge">${(r.forClass.split(/[#/]/).pop() || r.forClass)}</span>
+                  <span style=${{ wordBreak: 'break-all' }}>${r.instance || r.instanceContainer}</span>
+                </div>
+              `)}
+        `}
+      </div>`}
+
+      <div class="card">
+        <h3 class="side-title">Data islands</h3>
+        <div>
+          ${islands.map(isl => html`
+            <div class="island-row">
+              <span class="island-badge">${isl.view}</span>
+              <span><strong style=${{ color: 'var(--text)' }}>@type</strong>: ${isl.type}</span>
+              <span><strong style=${{ color: 'var(--text)' }}>@id</strong>: ${isl.id}</span>
+              <span style=${{ marginLeft: 'auto' }}>${isl.count} props</span>
+            </div>
+          `)}
+        </div>
+      </div>
+    </div>
+  `
+}
+
+// --- shell -----------------------------------------------------------------
+
+const VIEWS = {
+  profile:  { label: 'Profile',  icon: '\u{1F464}',     Component: ProfileView  },
+  tasks:    { label: 'Tasks',    icon: '\u{2705}',      Component: TasksView    },
+  settings: { label: 'Settings', icon: '\u{2699}\uFE0F', Component: SettingsView },
+}
+
+function IdentityChip({ identity }) {
+  if (!identity) return html`<div style=${{ fontSize: '12px', color: 'var(--rail-muted)', marginTop: '20px', lineHeight: 1.5 }}>Not signed in</div>`
+  const short = identity.id.length > 28 ? identity.id.slice(0, 26) + '…' : identity.id
+  return html`
+    <div style=${{ marginTop: '20px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)', fontSize: '12px', lineHeight: 1.5 }}>
+      <div style=${{ color: '#a5b4fc', fontWeight: 600, fontSize: '11px', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: '4px' }}>Signed in · ${identity.type}</div>
+      <div style=${{ color: 'var(--rail-text)', wordBreak: 'break-all' }}>${short}</div>
+    </div>`
+}
+
+const LAST_ROUTE_KEY = 'pilot.lastRoute'
+
+function Onboarding() {
+  return html`
+    <div class="onboard">
+      <div class="onboard-card">
+        <div class="onboard-logo">\u2708\uFE0F</div>
+        <h1 class="onboard-title">pilot</h1>
+        <p class="onboard-tag">A minimalist Solid console — your profile, your tasks, your settings. All on your pod.</p>
+        <div class="onboard-list">
+          <div><strong>Profile</strong> \u2014 fetch and edit your WebID inline</div>
+          <div><strong>Tasks</strong> \u2014 trackers discovered through your TypeIndex</div>
+          <div><strong>Settings</strong> \u2014 theme + identity + introspection</div>
+        </div>
+        <div class="onboard-cta">
+          Sign in via the <strong>button bottom-right</strong> to get started.
+        </div>
+      </div>
+    </div>`
+}
+
+function App() {
+  const identity = useXlogin()
+  const route = useHashRoute(localStorage.getItem(LAST_ROUTE_KEY) || 'profile')
+  const current = VIEWS[route] || VIEWS.profile
+  const ViewComponent = current.Component
+
+  useEffect(() => { if (VIEWS[route]) localStorage.setItem(LAST_ROUTE_KEY, route) }, [route])
+
+  if (!identity || identity.type !== 'solid') return html`<${Onboarding} />`
+
+  return html`
+    <div class="shell">
+      <aside class="rail">
+        <div class="brand"><span class="logo">\u2708\uFE0F</span><span>pilot</span></div>
+        <ul class="nav">
+          ${Object.entries(VIEWS).map(([key, v]) => html`
+            <li>
+              <a href=${'#/' + key} class=${route === key ? 'active' : ''}>
+                <span class="ic">${v.icon}</span><span>${v.label}</span>
+              </a>
+            </li>
+          `)}
+        </ul>
+        <${IdentityChip} identity=${identity} />
+      </aside>
+      <main>
+        <${ViewComponent} identity=${identity} />
+      </main>
+    </div>
+  `
+}
+
+render(html`<${App} />`, document.getElementById('app'))
+</script>
+
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "pilot",
+  "description": "A minimalist Solid console — Profile, Tasks, Settings on your pod. Single-file Preact SPA, zero build, fetches your WebID + walks your TypeIndex for trackers, all edits PUT back via xlogin.authFetch.",
+  "entry": "./index.html",
+  "types": ["urn:solid:Person"],
+  "icon": "\u2708\ufe0f",
+  "author": "Melvin Carvalho",
+  "status": "experimental",
+  "added": "2026-04-20"
+}
