@@ -1,6 +1,12 @@
 /**
  * tracker-pane — LOSOS pane for urn:solid:Tracker (wf:Tracker)
  *
+ * Implements the SolidOS tracker-pane shape convention: one JSON-LD file
+ * per tracker with an embedded `issue: [...]` array of Vtodo objects
+ * (no per-task URLs). This is convention #1 of six surveyed at
+ * https://solid-shapes.github.io/docs/shapes/tasks — the same shape
+ * mashlib's tracker-pane and pilot use.
+ *
  * Renders one tracker as a kanban column with full read/write CRUD:
  * add / toggle / edit / delete / drag-drop tasks. Edits PUT back to
  * the resource via xlogin.authFetch.

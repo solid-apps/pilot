@@ -8,6 +8,7 @@ Live: <https://solid-apps.github.io/pilot/>
 
 - **Profile**: fetches your WebID document as JSON-LD, normalizes common foaf/vcard predicates, click-to-edit any field. Edits PUT back to the WebID URL preserving pod-only fields (`solid:oidcIssuer`, `space:storage`, etc.).
 - **Tasks**: discovers `wf:Tracker` registrations through `solid:publicTypeIndex`, fetches each tracker, renders kanban columns. Add / toggle / edit / delete tasks → debounced PUT.
+  - **Shape**: SolidOS tracker-pane convention — one JSON-LD file per tracker with an embedded `issue: [...]` array of `Vtodo` objects (no per-task URLs). One of six conventions surveyed at <https://solid-shapes.github.io/docs/shapes/tasks>; pilot implements convention **#1**.
 - **Settings**: light/dark theme (localStorage), live login state, TypeIndex registrations debug view.
 
 Onboarding shows when you're not signed in — a focused welcome card pointing at the floating sign-in button. After login the SPA loads and remembers your last-visited route.
