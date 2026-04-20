@@ -761,6 +761,36 @@ const CANONICAL = {
 }
 const URI_FIELDS = new Set(['homepage', 'img'])
 
+// Merge JSON-LD nodes that share the same @id. Community Solid Server
+// sometimes flattens predicates into separate nodes (44 nodes all with
+// @id #me, each holding a different predicate) rather than merging them
+// into one — so we must reconstitute the full subject.
+function mergeNodes(nodes) {
+  if (nodes.length === 1) return nodes[0]
+  const out = {}
+  const keyOf = (v) => typeof v === 'object' && v !== null
+    ? (v['@id'] || v['@value'] || JSON.stringify(v))
+    : v
+  for (const n of nodes) {
+    for (const k of Object.keys(n)) {
+      if (k === '@id') { out[k] = n[k]; continue }
+      const incoming = Array.isArray(n[k]) ? n[k] : [n[k]]
+      if (out[k] == null) {
+        out[k] = Array.isArray(n[k]) ? [...n[k]] : n[k]
+        continue
+      }
+      const arr = Array.isArray(out[k]) ? out[k] : [out[k]]
+      const seen = new Set(arr.map(keyOf))
+      for (const v of incoming) {
+        const key = keyOf(v)
+        if (!seen.has(key)) { arr.push(v); seen.add(key) }
+      }
+      out[k] = arr
+    }
+  }
+  return out
+}
+
 function findSubject(doc, webid) {
   // The doc might be: (a) a single object, (b) an object with @graph, or
   // (c) a bare array of graph nodes (Community Solid Server returns this).
@@ -768,17 +798,17 @@ function findSubject(doc, webid) {
   const graph = Array.isArray(doc) ? doc
               : Array.isArray(doc['@graph']) ? doc['@graph']
               : [doc]
-  // 1. Match by @id endsWith #frag (most common)
+  // 1. All nodes with @id endsWith #frag, merged
   const frag = webid.includes('#') ? '#' + webid.split('#')[1] : null
   if (frag) {
-    const m = graph.find(n => (n['@id'] || '').endsWith(frag))
-    if (m) return m
+    const matches = graph.filter(n => (n['@id'] || '').endsWith(frag))
+    if (matches.length) return mergeNodes(matches)
   }
-  // 2. Match by full WebID
-  const m = graph.find(n => n['@id'] === webid)
-  if (m) return m
-  // 3. Pick the first node typed as a Person (or similar) — skips
-  //    PersonalProfileDocument wrappers that come first in some pods.
+  // 2. All nodes with full WebID match, merged
+  const exact = graph.filter(n => n['@id'] === webid)
+  if (exact.length) return mergeNodes(exact)
+  // 3. Pick the first node typed as a Person — skips PersonalProfileDocument
+  //    wrappers that come first in some pods.
   const person = graph.find(n => {
     const t = n['@type']
     if (!t) return false
