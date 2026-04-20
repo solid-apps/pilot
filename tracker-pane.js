@@ -163,6 +163,7 @@ export function TrackerColumn({ url, initialDoc, hideCompleted }) {
   const [dropOver, setDropOver] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const titleInputRef = useRef(null)
+  const submit = (e) => { e?.preventDefault?.(); const v = draft.trim(); if (!v) return; t.addIssue(v); setDraft('') }
   useEffect(() => { injectStyles() }, [])
   useEffect(() => { if (editingTitle && titleInputRef.current) { titleInputRef.current.focus(); titleInputRef.current.select() } }, [editingTitle])
 
