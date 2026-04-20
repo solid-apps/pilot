@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pilot — your Solid console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -89,11 +92,11 @@
   .card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 28px;
+    border-radius: 16px;
+    padding: 32px;
     box-shadow: var(--shadow);
   }
-  .card + .card { margin-top: 18px; }
+  .card + .card { margin-top: 16px; }
 
   /* Two-column grid for Profile view */
   .two-col {
@@ -104,15 +107,18 @@
   @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
 
   /* Profile bits */
-  .hero { display: flex; gap: 22px; align-items: flex-start; }
-  .photo, .photo-fallback { width: 120px; height: 120px; border-radius: 16px; flex: 0 0 auto; }
+  .hero { display: flex; gap: 26px; align-items: flex-start; }
+  .photo, .photo-fallback {
+    width: 132px; height: 132px; border-radius: 18px; flex: 0 0 auto;
+    box-shadow: 0 4px 16px rgba(20,15,40,.10);
+  }
   .photo { object-fit: cover; background: #eef; }
   .photo-fallback {
     background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: #fff; font: 600 52px/120px Georgia, serif;
+    color: #fff; font: 600 56px/132px Georgia, serif;
     text-align: center;
   }
-  .name { font: 700 26px/1.2 'Inter', sans-serif; color: #1a1a1a; letter-spacing: -0.3px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .name { font: 700 30px/1.15 'Inter', sans-serif; color: var(--text); letter-spacing: -0.6px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
   .pronoun { font: 400 14px/1; color: #6366f1; }
   .facts { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: #444; }
   @media (max-width: 600px) { .facts { grid-template-columns: 1fr; } }
@@ -121,8 +127,8 @@
   .fact a { color: inherit; text-decoration: none; }
   .fact a:hover { color: #6366f1; }
 
-  .section-title { font: 700 17px/1.2 'Inter', sans-serif; color: #1a1a1a; margin-bottom: 12px; }
-  .prose { font: 400 15px/1.65 Georgia, serif; color: #333; }
+  .section-title { font: 700 12px/1 'Inter', sans-serif; color: var(--muted); margin-bottom: 14px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .prose { font: 400 16px/1.7 Georgia, serif; color: #2a2a2a; }
   .side-title { font: 700 15px/1 'Inter', sans-serif; color: #1a1a1a; margin-bottom: 12px; }
   .pills { display: flex; gap: 6px; flex-wrap: wrap; }
   .pill { padding: 3px 11px; border-radius: 999px; background: #eef0fe; color: #4338ca; font-size: 13px; font-weight: 500; }
@@ -728,11 +734,7 @@ function ProfileView({ identity }) {
 
   return html`
     <div>
-    <div style=${{ marginBottom: '14px', display: 'flex', gap: '10px', alignItems: 'center', fontSize: '12px', color: 'var(--muted)', flexWrap: 'wrap' }}>
-      <span class="island-badge" style=${{ background: '#d1fae5', color: '#065f46' }}>live</span>
-      <span>Fetched from <code>${webid}</code></span>
-      ${save && html`<span style=${{ marginLeft: 'auto', color: save === 'saving' ? '#f59e0b' : save === 'saved' ? '#10b981' : '#ef4444' }}>${save === 'saving' ? '\u2026 saving' : save === 'saved' ? '\u2713 saved to pod' : '\u26a0 ' + (editable.error || 'error')}</span>`}
-    </div>
+    ${save && html`<div style=${{ marginBottom: '10px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', color: save === 'saving' ? '#f59e0b' : save === 'saved' ? '#10b981' : '#ef4444', textAlign: 'right' }}>${save === 'saving' ? '\u2026 SAVING' : save === 'saved' ? '\u2713 SAVED' : '\u26a0 ' + (editable.error || 'ERROR')}</div>`}
     <div class="two-col">
       <div>
         <div class="card">
