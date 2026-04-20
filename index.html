@@ -155,6 +155,19 @@
     transition: color .12s, border-color .12s;
   }
   .webid-bar-btn:hover { color: #4338ca; border-color: #6366f1; }
+
+  .viewer-banner {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 16px; margin-bottom: 16px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(99,102,241,.08), rgba(34,211,238,.06));
+    border: 1px solid rgba(99,102,241,.18);
+    font: 500 13px/1.4 'Inter', sans-serif;
+    color: var(--text);
+  }
+  .viewer-eye { display: inline-flex; align-items: center; color: #4338ca; }
+  .viewer-back { margin-left: auto; color: #4338ca; text-decoration: none; font-weight: 600; font-size: 12px; }
+  .viewer-back:hover { text-decoration: underline; }
   .pronoun { font: 400 14px/1; color: #6366f1; }
   .facts { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: #444; }
   @media (max-width: 600px) { .facts { grid-template-columns: 1fr; } }
@@ -612,6 +625,18 @@ function useHashRoute(fallback) {
   return route
 }
 
+// Reads ?<name>=... from window.location.search; updates on popstate.
+function useUriParam(name) {
+  const parse = () => new URLSearchParams(window.location.search).get(name)
+  const [val, setVal] = useState(parse)
+  useEffect(() => {
+    const onChange = () => setVal(parse())
+    window.addEventListener('popstate', onChange)
+    return () => window.removeEventListener('popstate', onChange)
+  }, [])
+  return val
+}
+
 // --- view: Profile --------------------------------------------------------
 
 const niceLink = (u) => (u || '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')
@@ -656,7 +681,7 @@ const EDIT_PREDICATES = {
   nick:     ['nick', 'foaf:nick', 'http://xmlns.com/foaf/0.1/nick'],
   email:    ['email', 'foaf:mbox', 'http://xmlns.com/foaf/0.1/mbox'],
   homepage: ['homepage', 'foaf:homepage', 'http://xmlns.com/foaf/0.1/homepage'],
-  img:      ['img', 'foaf:img', 'http://xmlns.com/foaf/0.1/img'],
+  img:      ['img', 'foaf:img', 'http://xmlns.com/foaf/0.1/img', 'foaf:depiction', 'http://xmlns.com/foaf/0.1/depiction', 'vcard:hasPhoto', 'http://www.w3.org/2006/vcard/ns#hasPhoto'],
   bio:      ['bio', 'vcard:note', 'http://www.w3.org/2006/vcard/ns#note'],
   pronouns: ['pronouns', 'solid:preferredSubjectPronoun', 'http://www.w3.org/ns/solid/terms#preferredSubjectPronoun'],
   role:     ['role', 'vcard:role', 'http://www.w3.org/2006/vcard/ns#role'],
@@ -671,12 +696,29 @@ const CANONICAL = {
 const URI_FIELDS = new Set(['homepage', 'img'])
 
 function findSubject(doc, webid) {
-  if (Array.isArray(doc)) return doc[0]
-  if (Array.isArray(doc['@graph'])) {
-    const frag = webid.includes('#') ? '#' + webid.split('#')[1] : null
-    return (frag && doc['@graph'].find(n => (n['@id'] || '').endsWith(frag))) || doc['@graph'][0]
+  // The doc might be: (a) a single object, (b) an object with @graph, or
+  // (c) a bare array of graph nodes (Community Solid Server returns this).
+  // Normalize all three to a flat list of nodes.
+  const graph = Array.isArray(doc) ? doc
+              : Array.isArray(doc['@graph']) ? doc['@graph']
+              : [doc]
+  // 1. Match by @id endsWith #frag (most common)
+  const frag = webid.includes('#') ? '#' + webid.split('#')[1] : null
+  if (frag) {
+    const m = graph.find(n => (n['@id'] || '').endsWith(frag))
+    if (m) return m
   }
-  return doc
+  // 2. Match by full WebID
+  const m = graph.find(n => n['@id'] === webid)
+  if (m) return m
+  // 3. Pick the first node typed as a Person (or similar) — skips
+  //    PersonalProfileDocument wrappers that come first in some pods.
+  const person = graph.find(n => {
+    const t = n['@type']
+    if (!t) return false
+    return (Array.isArray(t) ? t : [t]).some(x => /Person|Agent/i.test(x))
+  })
+  return person || graph[0]
 }
 
 function readField(subject, field) {
@@ -763,7 +805,9 @@ function EmptyFact({ icon, text }) {
 }
 
 function ProfileView({ identity }) {
-  const webid = identity.id
+  const viewedUri = useUriParam('uri')
+  const isViewing = viewedUri && (!identity || viewedUri !== identity.id)
+  const webid = viewedUri || identity?.id
   const editable = useEditableProfile(webid)
   const data = editable.data || {}
   const { name, address, email, phone, homepage, img, bio, pronouns, role, org } = data
@@ -773,27 +817,46 @@ function ProfileView({ identity }) {
   const niceWebid = webid.replace(/^https?:\/\//, '')
   const copyWebid = () => { try { navigator.clipboard.writeText(webid) } catch {} }
 
-  if (editable.loading) return html`<div style=${{ color: 'var(--muted)' }}>Loading your WebID\u2026</div>`
+  if (editable.loading) return html`<div style=${{ color: 'var(--muted)' }}>Loading WebID\u2026</div>`
   if (editable.error && !editable.data) return html`<div class="err">${editable.error}</div>`
+
+  // Helper: edit-or-static — either an EditableText or a plain span depending on viewer mode
+  const F = (value, placeholder, onChange) => isViewing
+    ? html`<span class=${value ? 'e' : 'e empty'} style=${{ cursor: 'default' }}>${value || (placeholder || '\u2014')}</span>`
+    : html`<${EditableText} value=${value} placeholder=${placeholder} onChange=${onChange} />`
+  const FBio = (value, placeholder, onChange) => isViewing
+    ? (value ? html`<span>${value}</span>` : html`<span class="e empty" style=${{ cursor: 'default' }}>${placeholder || '\u2014'}</span>`)
+    : html`<${EditableText} value=${value} placeholder=${placeholder} multiline=${true} block=${true} onChange=${onChange} />`
+
+  const clearViewer = (e) => {
+    e?.preventDefault?.()
+    const url = new URL(window.location.href)
+    url.searchParams.delete('uri')
+    window.history.pushState({}, '', url.toString())
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }
 
   return html`
     <div>
-    ${save && html`<div style=${{ marginBottom: '10px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', color: save === 'saving' ? '#f59e0b' : save === 'saved' ? '#10b981' : '#ef4444', textAlign: 'right' }}>${save === 'saving' ? '\u2026 SAVING' : save === 'saved' ? '\u2713 SAVED' : '\u26a0 ' + (editable.error || 'ERROR')}</div>`}
+    ${isViewing && html`<div class="viewer-banner">
+      <span class="viewer-eye"><${Icon} name="eye" size=${14} /></span>
+      <span>Viewing someone else's WebID \u2014 read-only</span>
+      ${identity && html`<a class="viewer-back" href="?" onClick=${clearViewer}>\u2190 Back to my profile</a>`}
+    </div>`}
+    ${!isViewing && save && html`<div style=${{ marginBottom: '10px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', color: save === 'saving' ? '#f59e0b' : save === 'saved' ? '#10b981' : '#ef4444', textAlign: 'right' }}>${save === 'saving' ? '\u2026 SAVING' : save === 'saved' ? '\u2713 SAVED' : '\u26a0 ' + (editable.error || 'ERROR')}</div>`}
     <div class="two-col">
       <div>
         <div class="card">
           <div class="hero">
             <${Avatar} src=${img} name=${name} />
             <div class="hero-meta">
-              <h1 class="name">
-                <${EditableText} value=${name} placeholder="Add name" onChange=${(v) => set('name', v)} />
-              </h1>
+              <h1 class="name">${F(name, 'Add name', (v) => set('name', v))}</h1>
               ${(role || org) && html`<div class="role-line">${role && html`<span>${role}</span>`}${role && org && html`<span class="role-sep">at</span>`}${org && html`<span class="role-org">${org}</span>`}</div>`}
               <div class="facts">
-                <div class="fact"><span class="ic"><${Icon} name="map-pin" size=${15} /></span><${EditableText} value=${address}  placeholder="Add address"  onChange=${(v) => set('address', v)}  /></div>
-                <div class="fact"><span class="ic"><${Icon} name="phone"   size=${15} /></span><${EditableText} value=${phone}    placeholder="Add phone"    onChange=${(v) => set('phone', v)}    /></div>
-                <div class="fact"><span class="ic"><${Icon} name="mail"    size=${15} /></span><${EditableText} value=${email}    placeholder="Add email"    onChange=${(v) => set('email', v)}    /></div>
-                <div class="fact"><span class="ic"><${Icon} name="globe"   size=${15} /></span><${EditableText} value=${homepage} placeholder="Add homepage" onChange=${(v) => set('homepage', v)} /></div>
+                <div class="fact"><span class="ic"><${Icon} name="map-pin" size=${15} /></span>${F(address,  'Add address',  (v) => set('address', v))}</div>
+                <div class="fact"><span class="ic"><${Icon} name="phone"   size=${15} /></span>${F(phone,    'Add phone',    (v) => set('phone', v))}</div>
+                <div class="fact"><span class="ic"><${Icon} name="mail"    size=${15} /></span>${F(email,    'Add email',    (v) => set('email', v))}</div>
+                <div class="fact"><span class="ic"><${Icon} name="globe"   size=${15} /></span>${F(homepage, 'Add homepage', (v) => set('homepage', v))}</div>
               </div>
               <div class="webid-bar">
                 <span class="webid-bar-icon"><${Icon} name="globe" size=${13} /></span>
@@ -804,7 +867,7 @@ function ProfileView({ identity }) {
             </div>
           </div>
         </div>
-        <div class="card"><h2 class="section-title">Bio</h2><p class="prose"><${EditableText} value=${bio} placeholder="Click to add a bio (writes to vcard:note)" multiline=${true} block=${true} onChange=${(v) => set('bio', v)} /></p></div>
+        <div class="card"><h2 class="section-title">Bio</h2><p class="prose">${FBio(bio, isViewing ? 'No bio in this WebID' : 'Click to add a bio (writes to vcard:note)', (v) => set('bio', v))}</p></div>
       </div>
     </div>
     </div>
@@ -1070,8 +1133,10 @@ const META  = isMac ? '\u2318' : 'Ctrl'
 
 function App() {
   const identity = useXlogin()
+  const viewedUri = useUriParam('uri')
   const route = useHashRoute(localStorage.getItem(LAST_ROUTE_KEY) || 'profile')
-  const current = VIEWS[route] || VIEWS.profile
+  const effectiveRoute = viewedUri ? 'profile' : route  // viewer mode = profile only
+  const current = VIEWS[effectiveRoute] || VIEWS.profile
   const ViewComponent = current.Component
 
   // Lifted state so the command palette can toggle these
@@ -1098,7 +1163,9 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  if (!identity || identity.type !== 'solid') return html`<${Onboarding} />`
+  // Viewer mode (?uri=…) bypasses sign-in: anyone can read any WebID.
+  // Sign-in is only required for the editable view of your own pod.
+  if ((!identity || identity.type !== 'solid') && !viewedUri) return html`<${Onboarding} />`
 
   const commands = [
     { id: 'go-profile',  cat: 'Go to', icon: 'user',     label: 'Profile',  shortcut: META + ' 1', run: () => { window.location.hash = '#/profile' } },
@@ -1112,6 +1179,16 @@ function App() {
       run: () => setHideCompleted(!hideCompleted) },
     { id: 'webid', cat: 'Pod', icon: 'link', label: 'Open my WebID source',
       run: () => window.open(identity.id.replace(/#.*$/, ''), '_blank', 'noopener') },
+    { id: 'view-webid', cat: 'Pod', icon: 'eye', label: 'View another WebID\u2026',
+      run: () => {
+        const u = window.prompt('WebID to view (e.g. https://timbl.solidcommunity.net/profile/card#me)')
+        if (!u) return
+        const url = new URL(window.location.href)
+        url.searchParams.set('uri', u.trim())
+        url.hash = '#/profile'
+        window.history.pushState({}, '', url.toString())
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      } },
     { id: 'reload', cat: 'Pod', icon: 'refresh', label: 'Reload page',
       run: () => window.location.reload() },
   ]
