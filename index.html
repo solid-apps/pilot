@@ -136,6 +136,7 @@
   }
   .role-line .role-sep { opacity: 0.5; font-weight: 400; }
   .role-line .role-org { color: var(--text); font-weight: 600; }
+  .role-line .verified-inline { color: #10b981; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
 
   .webid-bar {
     display: flex; align-items: center; gap: 8px;
@@ -883,7 +884,13 @@ function ProfileView({ identity }) {
             <${Avatar} src=${img} name=${name} />
             <div class="hero-meta">
               <h1 class="name">${F(name, 'Add name', (v) => set('name', v))}</h1>
-              ${(role || org) && html`<div class="role-line">${role && html`<span>${role}</span>`}${role && org && html`<span class="role-sep">at</span>`}${org && html`<span class="role-org">${org}</span>`}</div>`}
+              ${(role || org || isOwn) && html`<div class="role-line">
+                ${role && html`<span>${role}</span>`}
+                ${role && org && html`<span class="role-sep">at</span>`}
+                ${org && html`<span class="role-org">${org}</span>`}
+                ${isOwn && (role || org) && html`<span class="role-sep">·</span>`}
+                ${isOwn && html`<span class="verified-inline"><${Icon} name="check-sq" size=${12} /> Verified you</span>`}
+              </div>`}
               <div class="facts">
                 <div class="fact"><span class="ic"><${Icon} name="map-pin" size=${15} /></span>${F(address,  'Add address',  (v) => set('address', v))}</div>
                 <div class="fact"><span class="ic"><${Icon} name="phone"   size=${15} /></span>${F(phone,    'Add phone',    (v) => set('phone', v))}</div>
@@ -904,7 +911,7 @@ function ProfileView({ identity }) {
             <div class="stat-label">Pod</div>
             <div class="stat-value"><code>${podHost}</code></div>
           </div>
-          ${storageHost && html`
+          ${storageHost && storageHost !== podHost && html`
             <div class="stat">
               <div class="stat-label">Storage</div>
               <div class="stat-value"><code>${storageHost}</code></div>
@@ -914,15 +921,10 @@ function ProfileView({ identity }) {
               <div class="stat-label">Inbox</div>
               <div class="stat-value"><a href=${inboxAbs} target="_blank" rel="noopener"><${Icon} name="mail" size=${12} /> Open</a></div>
             </div>`}
-          ${issuerHost && html`
+          ${issuerHost && issuerHost !== podHost && html`
             <div class="stat">
               <div class="stat-label">Sign-in via</div>
               <div class="stat-value"><code>${issuerHost}</code></div>
-            </div>`}
-          ${isOwn && html`
-            <div class="stat">
-              <div class="stat-label">Status</div>
-              <div class="stat-value verified"><${Icon} name="check-sq" size=${13} /> Verified you</div>
             </div>`}
         </div>
         <div class="card"><h2 class="section-title">Bio</h2><p class="prose">${FBio(bio, isViewing ? 'No bio in this WebID' : 'Click to add a bio (writes to vcard:note)', (v) => set('bio', v))}</p></div>
