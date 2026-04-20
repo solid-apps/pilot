@@ -189,6 +189,35 @@
   .stat-value a { color: #4338ca; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
   .stat-value a:hover { text-decoration: underline; }
   .stat-value.verified { color: #10b981; }
+
+  /* Knows / social graph */
+  .knows-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .knows-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card);
+    text-decoration: none; color: inherit;
+    transition: transform .12s, border-color .12s, box-shadow .12s;
+    min-width: 0;
+  }
+  .knows-card:hover {
+    transform: translateY(-1px);
+    border-color: #6366f1;
+    box-shadow: 0 4px 14px rgba(99,102,241,.10);
+  }
+  .knows-avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff; font: 700 14px/38px 'Inter', sans-serif;
+    text-align: center; flex: 0 0 auto;
+  }
+  .knows-meta { flex: 1; min-width: 0; }
+  .knows-host { font: 600 13.5px/1.2 'Inter', sans-serif; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .knows-path { font: 400 11.5px/1.3 ui-monospace, SFMono-Regular, monospace; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
   .pronoun { font: 400 14px/1; color: #6366f1; }
   .facts { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: #444; }
   @media (max-width: 600px) { .facts { grid-template-columns: 1fr; } }
@@ -712,6 +741,9 @@ const EDIT_PREDICATES = {
   inbox:      ['inbox', 'ldp:inbox', 'http://www.w3.org/ns/ldp#inbox'],
   oidcIssuer: ['oidcIssuer', 'solid:oidcIssuer', 'http://www.w3.org/ns/solid/terms#oidcIssuer'],
 }
+// foaf:knows is read separately because it's an array of references rather
+// than a single value — the readField helper picks one item, we want all.
+const KNOWS_PREDICATES = ['knows', 'foaf:knows', 'http://xmlns.com/foaf/0.1/knows']
 const CANONICAL = {
   name: 'foaf:name', nick: 'foaf:nick', email: 'foaf:mbox',
   homepage: 'foaf:homepage', img: 'foaf:img', bio: 'vcard:note',
@@ -819,6 +851,18 @@ function useEditableProfile(webid) {
       const v = readField(subj, f)
       if (v) out[f] = v
     }
+    // knows: collect all references (array, not single value)
+    const knowsRaw = []
+    for (const p of KNOWS_PREDICATES) {
+      const v = subj[p]
+      if (!v) continue
+      const items = Array.isArray(v) ? v : [v]
+      for (const it of items) {
+        const id = typeof it === 'string' ? it : (it && (it['@id'] || it['@value']))
+        if (id && !knowsRaw.includes(id)) knowsRaw.push(id)
+      }
+    }
+    out.knows = knowsRaw
     return out
   })() : null
 
@@ -836,6 +880,7 @@ function ProfileView({ identity }) {
   const editable = useEditableProfile(webid)
   const data = editable.data || {}
   const { name, address, email, phone, homepage, img, bio, pronouns, role, org, storage, inbox, oidcIssuer } = data
+  const knows = Array.isArray(data.knows) ? data.knows : []
   const save = editable.status
   const set  = editable.setField
   const webidSrcUrl = webid.replace(/#.*$/, '')
@@ -928,6 +973,38 @@ function ProfileView({ identity }) {
             </div>`}
         </div>
         <div class="card"><h2 class="section-title">Bio</h2><p class="prose">${FBio(bio, isViewing ? 'No bio in this WebID' : 'Click to add a bio (writes to vcard:note)', (v) => set('bio', v))}</p></div>
+
+        ${knows.length > 0 && html`
+          <div class="card">
+            <h2 class="section-title">Knows · ${knows.length}</h2>
+            <div class="knows-grid">
+              ${knows.map(id => {
+                const initial = (() => {
+                  try { const u = new URL(id); const p = u.pathname.split('/').filter(Boolean); return ((p[0] || u.host).charAt(0)).toUpperCase() }
+                  catch { return '?' }
+                })()
+                const host = (() => { try { return new URL(id).host.replace(/^www\./, '') } catch { return id } })()
+                const path = (() => { try { return new URL(id).pathname + (new URL(id).hash || '') } catch { return '' } })()
+                const goTo = (e) => {
+                  e.preventDefault()
+                  const url = new URL(window.location.href)
+                  url.searchParams.set('uri', id)
+                  url.hash = '#/profile'
+                  window.history.pushState({}, '', url.toString())
+                  window.dispatchEvent(new PopStateEvent('popstate'))
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                }
+                return html`
+                  <a class="knows-card" href=${'?uri=' + encodeURIComponent(id) + '#/profile'} onClick=${goTo} title=${id}>
+                    <div class="knows-avatar">${initial}</div>
+                    <div class="knows-meta">
+                      <div class="knows-host">${host}</div>
+                      <div class="knows-path">${path}</div>
+                    </div>
+                  </a>`
+              })}
+            </div>
+          </div>`}
       </div>
     </div>
     </div>
