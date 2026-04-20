@@ -118,7 +118,43 @@
     color: #fff; font: 600 56px/132px Georgia, serif;
     text-align: center;
   }
+  .hero-meta { flex: 1; min-width: 0; }
   .name { font: 700 30px/1.15 'Inter', sans-serif; color: var(--text); letter-spacing: -0.6px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+
+  .pronoun-pill {
+    font: 600 11px/1 'Inter', sans-serif; letter-spacing: 0.02em;
+    padding: 4px 10px; border-radius: 999px;
+    background: linear-gradient(135deg, rgba(99,102,241,.10), rgba(236,72,153,.10));
+    color: #4338ca;
+    border: 1px solid rgba(99,102,241,.18);
+    align-self: center;
+  }
+  .role-line {
+    display: flex; align-items: center; gap: 6px;
+    font: 500 13.5px/1.4 'Inter', sans-serif; color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .role-line .role-sep { opacity: 0.5; font-weight: 400; }
+  .role-line .role-org { color: var(--text); font-weight: 600; }
+
+  .webid-bar {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 16px; padding: 8px 8px 8px 12px;
+    border-radius: 8px; background: var(--bg);
+    border: 1px solid var(--border);
+    font: 500 12px/1 ui-monospace, SFMono-Regular, monospace;
+  }
+  .webid-bar-icon { color: var(--muted); display: inline-flex; align-items: center; }
+  .webid-bar-id { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .webid-bar-btn {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer; text-decoration: none;
+    font: 600 10.5px/1 'Inter', sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 5px 9px; border-radius: 5px;
+    display: inline-flex; align-items: center; gap: 4px;
+    transition: color .12s, border-color .12s;
+  }
+  .webid-bar-btn:hover { color: #4338ca; border-color: #6366f1; }
   .pronoun { font: 400 14px/1; color: #6366f1; }
   .facts { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: #444; }
   @media (max-width: 600px) { .facts { grid-template-columns: 1fr; } }
@@ -622,10 +658,15 @@ const EDIT_PREDICATES = {
   homepage: ['homepage', 'foaf:homepage', 'http://xmlns.com/foaf/0.1/homepage'],
   img:      ['img', 'foaf:img', 'http://xmlns.com/foaf/0.1/img'],
   bio:      ['bio', 'vcard:note', 'http://www.w3.org/2006/vcard/ns#note'],
+  pronouns: ['pronouns', 'solid:preferredSubjectPronoun', 'http://www.w3.org/ns/solid/terms#preferredSubjectPronoun'],
+  role:     ['role', 'vcard:role', 'http://www.w3.org/2006/vcard/ns#role'],
+  org:      ['org', 'organization', 'vcard:organization-name', 'http://www.w3.org/2006/vcard/ns#organization-name', 'schema:worksFor', 'http://schema.org/worksFor'],
 }
 const CANONICAL = {
   name: 'foaf:name', nick: 'foaf:nick', email: 'foaf:mbox',
   homepage: 'foaf:homepage', img: 'foaf:img', bio: 'vcard:note',
+  pronouns: 'solid:preferredSubjectPronoun',
+  role: 'vcard:role', org: 'vcard:organization-name',
 }
 const URI_FIELDS = new Set(['homepage', 'img'])
 
@@ -725,9 +766,12 @@ function ProfileView({ identity }) {
   const webid = identity.id
   const editable = useEditableProfile(webid)
   const data = editable.data || {}
-  const { name, address, email, phone, homepage, img, bio } = data
+  const { name, address, email, phone, homepage, img, bio, pronouns, role, org } = data
   const save = editable.status
   const set  = editable.setField
+  const webidSrcUrl = webid.replace(/#.*$/, '')
+  const niceWebid = webid.replace(/^https?:\/\//, '')
+  const copyWebid = () => { try { navigator.clipboard.writeText(webid) } catch {} }
 
   if (editable.loading) return html`<div style=${{ color: 'var(--muted)' }}>Loading your WebID\u2026</div>`
   if (editable.error && !editable.data) return html`<div class="err">${editable.error}</div>`
@@ -740,15 +784,22 @@ function ProfileView({ identity }) {
         <div class="card">
           <div class="hero">
             <${Avatar} src=${img} name=${name} />
-            <div>
+            <div class="hero-meta">
               <h1 class="name">
                 <${EditableText} value=${name} placeholder="Add name" onChange=${(v) => set('name', v)} />
               </h1>
+              ${(role || org) && html`<div class="role-line">${role && html`<span>${role}</span>`}${role && org && html`<span class="role-sep">at</span>`}${org && html`<span class="role-org">${org}</span>`}</div>`}
               <div class="facts">
                 <div class="fact"><span class="ic"><${Icon} name="map-pin" size=${15} /></span><${EditableText} value=${address}  placeholder="Add address"  onChange=${(v) => set('address', v)}  /></div>
                 <div class="fact"><span class="ic"><${Icon} name="phone"   size=${15} /></span><${EditableText} value=${phone}    placeholder="Add phone"    onChange=${(v) => set('phone', v)}    /></div>
                 <div class="fact"><span class="ic"><${Icon} name="mail"    size=${15} /></span><${EditableText} value=${email}    placeholder="Add email"    onChange=${(v) => set('email', v)}    /></div>
                 <div class="fact"><span class="ic"><${Icon} name="globe"   size=${15} /></span><${EditableText} value=${homepage} placeholder="Add homepage" onChange=${(v) => set('homepage', v)} /></div>
+              </div>
+              <div class="webid-bar">
+                <span class="webid-bar-icon"><${Icon} name="globe" size=${13} /></span>
+                <code class="webid-bar-id">${niceWebid}</code>
+                <button class="webid-bar-btn" onClick=${copyWebid} title="Copy WebID">Copy</button>
+                <a class="webid-bar-btn" href=${webidSrcUrl} target="_blank" rel="noopener" title="Open WebID source"><${Icon} name="link" size=${12} /></a>
               </div>
             </div>
           </div>
