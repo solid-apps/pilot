@@ -113,6 +113,7 @@ export function useTracker(url, initialDoc) {
     editIssue:   (id, summary)     => mutate(d => setIssues(d, issuesOf(d).map(it => it['@id'] === id
       ? { ...it, summary, modified: nowIso() } : it))),
     deleteIssue: (id)              => mutate(d => setIssues(d, issuesOf(d).filter(it => it['@id'] !== id))),
+    setTitle:    (title)           => mutate(d => ({ ...d, title })),
     addExisting: (issue, beforeId) => mutate(d => setIssues(d, insertAt(issuesOf(d), { ...issue, modified: nowIso() }, beforeId))),
     moveWithin:  (id, beforeId)    => mutate(d => {
       const xs = issuesOf(d)
@@ -160,8 +161,16 @@ export function TrackerColumn({ url, initialDoc, hideCompleted }) {
   const t = useTracker(url, initialDoc)
   const [draft, setDraft] = useState('')
   const [dropOver, setDropOver] = useState(false)
-  const submit = (e) => { e?.preventDefault?.(); const v = draft.trim(); if (!v) return; t.addIssue(v); setDraft('') }
+  const [editingTitle, setEditingTitle] = useState(false)
+  const titleInputRef = useRef(null)
   useEffect(() => { injectStyles() }, [])
+  useEffect(() => { if (editingTitle && titleInputRef.current) { titleInputRef.current.focus(); titleInputRef.current.select() } }, [editingTitle])
+
+  const commitTitle = () => {
+    const v = titleInputRef.current?.value.trim()
+    if (v && v !== (t.doc?.title || '')) t.setTitle(v)
+    setEditingTitle(false)
+  }
 
   useEffect(() => {
     if (!url) return
@@ -213,7 +222,12 @@ export function TrackerColumn({ url, initialDoc, hideCompleted }) {
     <div class=${'tp-col ' + (dropOver ? 'tp-drop-over' : '')}
          onDragOver=${onDragOver} onDragLeave=${onDragLeave} onDrop=${onDrop}>
       <div class="tp-col-head">
-        <div class="tp-col-title">${doc.title || (url || '').split('/').pop()}</div>
+        ${editingTitle
+          ? html`<input ref=${titleInputRef} class="tp-col-title-input"
+              defaultValue=${doc.title || ''}
+              onBlur=${commitTitle}
+              onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); commitTitle() } if (e.key === 'Escape') { e.preventDefault(); setEditingTitle(false) } }} />`
+          : html`<div class="tp-col-title" title="Click to rename" onClick=${() => setEditingTitle(true)}>${doc.title || (url || '').split('/').pop()}</div>`}
         <div class="tp-col-count">${open}/${allIssues.length}</div>
         ${t.status && html`<div class=${'tp-col-status tp-' + t.status}>${t.status === 'saving' ? '\u2026 saving' : t.status === 'saved' ? '\u2713 saved' : '\u26a0 ' + (t.error || 'error')}</div>`}
       </div>
@@ -238,7 +252,9 @@ function injectStyles() {
   s.textContent = `
 .tp-col { background: #fff; border: 1px solid #e8e8ee; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; box-shadow: 0 1px 2px rgba(0,0,0,.03); min-height: 240px; font-family: 'Inter', -apple-system, sans-serif; color: #222; }
 .tp-col-head { display: flex; align-items: baseline; gap: 10px; padding: 0 4px 12px; border-bottom: 1px solid #e8e8ee; margin-bottom: 12px; }
-.tp-col-title { font: 700 16px/1 'Inter', sans-serif; }
+.tp-col-title { font: 700 16px/1 'Inter', sans-serif; cursor: text; padding: 1px 4px; margin: -1px -4px; border-radius: 4px; transition: background .12s; }
+.tp-col-title:hover { background: rgba(99,102,241,.08); }
+.tp-col-title-input { font: 700 16px/1 'Inter', sans-serif; padding: 1px 4px; border: 1px solid #6366f1; border-radius: 4px; outline: none; box-shadow: 0 0 0 2px rgba(99,102,241,.18); background: #fff; color: inherit; min-width: 0; max-width: 220px; }
 .tp-col-count { font: 600 11px/1 'Inter', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #888; }
 .tp-col-status { margin-left: auto; font: 500 11px/1 'Inter', sans-serif; color: #888; }
 .tp-col-status.tp-saving { color: #f59e0b; }
