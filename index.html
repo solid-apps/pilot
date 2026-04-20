@@ -60,7 +60,7 @@
     display: flex; align-items: center; justify-content: center;
     font-weight: 700; color: #fff;
   }
-  .nav { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 0; margin: 0; }
+  .nav { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 0; margin: 16px 0 0; }
   .nav a {
     display: flex; align-items: center; gap: 10px;
     padding: 9px 12px; border-radius: 8px;
@@ -1067,6 +1067,11 @@ function App() {
     <div class="shell">
       <aside class="rail">
         <div class="brand"><span class="logo"><${Icon} name="send" size=${16} stroke=${2.25} /></span><span>pilot</span></div>
+        <button class="cmd-launcher" onClick=${() => setPaletteOpen(true)}>
+          <span class="cmd-launcher-icon"><${Icon} name="search" size=${14} /></span>
+          <span>Search\u2026</span>
+          <span class="cmd-launcher-kbd"><kbd>${META}</kbd><kbd>K</kbd></span>
+        </button>
         <ul class="nav">
           ${Object.entries(VIEWS).map(([key, v]) => html`
             <li>
@@ -1076,11 +1081,6 @@ function App() {
             </li>
           `)}
         </ul>
-        <button class="cmd-launcher" onClick=${() => setPaletteOpen(true)}>
-          <span class="cmd-launcher-icon"><${Icon} name="search" size=${14} /></span>
-          <span>Search\u2026</span>
-          <span class="cmd-launcher-kbd"><kbd>${META}</kbd><kbd>K</kbd></span>
-        </button>
         <${IdentityChip} identity=${identity} />
       </aside>
       <main>
