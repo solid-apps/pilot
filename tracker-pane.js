@@ -23,9 +23,13 @@
  * AGPL-3.0 — part of pilot
  */
 
-import { h, render as preactRender } from 'https://esm.sh/preact@10'
-import { useState, useEffect, useCallback, useRef } from 'https://esm.sh/preact@10/hooks'
-import htm from 'https://esm.sh/htm@3'
+// Imports use bare specifiers — the consuming page must provide an
+// <script type="importmap"> mapping "preact", "preact/hooks", and "htm".
+// Pilot ships such a map; LOSOS host apps need to add one (or use a
+// browser polyfill) to embed this pane.
+import { h, render as preactRender } from 'preact'
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks'
+import htm from 'htm'
 
 const html = htm.bind(h)
 

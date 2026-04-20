@@ -7,6 +7,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "preact":        "./vendor/preact.js",
+    "preact/hooks":  "./vendor/hooks.js",
+    "htm":           "./vendor/htm.js"
+  }
+}
+</script>
 <style>
   * { margin: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -443,9 +452,9 @@
 <div id="app"></div>
 
 <script type="module">
-import { h, render } from 'https://esm.sh/preact@10'
-import { useState, useEffect, useCallback, useRef } from 'https://esm.sh/preact@10/hooks'
-import htm from 'https://esm.sh/htm@3'
+import { h, render } from 'preact'
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks'
+import htm from 'htm'
 
 const html = htm.bind(h)
 
