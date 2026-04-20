@@ -51,7 +51,7 @@ async function putJsonLd(url, body) {
 
 // --- one-tracker state with optimistic edits + debounced PUT ---------------
 
-function useTracker(url, initialDoc) {
+export function useTracker(url, initialDoc) {
   const [state, setState] = useState({
     loading: !initialDoc && !!url,
     doc: initialDoc || null,
@@ -126,11 +126,11 @@ function useTracker(url, initialDoc) {
 
 // Module-level bus so a drop on tracker T can call mutators on tracker S
 // without prop-drilling. Cross-pane on the same page works automatically.
-const trackerBus = new Map()
+export const trackerBus = new Map()
 
 // --- presentational components --------------------------------------------
 
-function IssueRow({ issue, trackerUrl, onToggle, onEdit, onDelete }) {
+export function IssueRow({ issue, trackerUrl, onToggle, onEdit, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef(null)
@@ -156,11 +156,12 @@ function IssueRow({ issue, trackerUrl, onToggle, onEdit, onDelete }) {
     </div>`
 }
 
-function TrackerColumn({ url, initialDoc, hideCompleted }) {
+export function TrackerColumn({ url, initialDoc, hideCompleted }) {
   const t = useTracker(url, initialDoc)
   const [draft, setDraft] = useState('')
   const [dropOver, setDropOver] = useState(false)
   const submit = (e) => { e?.preventDefault?.(); const v = draft.trim(); if (!v) return; t.addIssue(v); setDraft('') }
+  useEffect(() => { injectStyles() }, [])
 
   useEffect(() => {
     if (!url) return
