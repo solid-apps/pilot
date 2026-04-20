@@ -168,6 +168,26 @@
   .viewer-eye { display: inline-flex; align-items: center; color: #4338ca; }
   .viewer-back { margin-left: auto; color: #4338ca; text-decoration: none; font-weight: 600; font-size: 12px; }
   .viewer-back:hover { text-decoration: underline; }
+
+  /* Stat row under the identity card */
+  .stat-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px; margin-top: 16px;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px;
+    box-shadow: var(--shadow);
+  }
+  .stat-label {
+    font: 700 10.5px/1 'Inter'; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 8px;
+  }
+  .stat-value { font: 600 14px/1.3 'Inter'; color: var(--text); display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .stat-value code { font: 500 13px/1.3 ui-monospace, SFMono-Regular, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stat-value a { color: #4338ca; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+  .stat-value a:hover { text-decoration: underline; }
+  .stat-value.verified { color: #10b981; }
   .pronoun { font: 400 14px/1; color: #6366f1; }
   .facts { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: #444; }
   @media (max-width: 600px) { .facts { grid-template-columns: 1fr; } }
@@ -686,6 +706,10 @@ const EDIT_PREDICATES = {
   pronouns: ['pronouns', 'solid:preferredSubjectPronoun', 'http://www.w3.org/ns/solid/terms#preferredSubjectPronoun'],
   role:     ['role', 'vcard:role', 'http://www.w3.org/2006/vcard/ns#role'],
   org:      ['org', 'organization', 'vcard:organization-name', 'http://www.w3.org/2006/vcard/ns#organization-name', 'schema:worksFor', 'http://schema.org/worksFor'],
+  // Read-only meta fields surfaced in the stat row
+  storage:    ['storage', 'pim:storage', 'http://www.w3.org/ns/pim/space#storage'],
+  inbox:      ['inbox', 'ldp:inbox', 'http://www.w3.org/ns/ldp#inbox'],
+  oidcIssuer: ['oidcIssuer', 'solid:oidcIssuer', 'http://www.w3.org/ns/solid/terms#oidcIssuer'],
 }
 const CANONICAL = {
   name: 'foaf:name', nick: 'foaf:nick', email: 'foaf:mbox',
@@ -810,12 +834,20 @@ function ProfileView({ identity }) {
   const webid = viewedUri || identity?.id
   const editable = useEditableProfile(webid)
   const data = editable.data || {}
-  const { name, address, email, phone, homepage, img, bio, pronouns, role, org } = data
+  const { name, address, email, phone, homepage, img, bio, pronouns, role, org, storage, inbox, oidcIssuer } = data
   const save = editable.status
   const set  = editable.setField
   const webidSrcUrl = webid.replace(/#.*$/, '')
   const niceWebid = webid.replace(/^https?:\/\//, '')
   const copyWebid = () => { try { navigator.clipboard.writeText(webid) } catch {} }
+
+  // Resolve a possibly-relative URL against the WebID, return host or null
+  const resolveHost = (v) => { if (!v) return null; try { return new URL(v, webid).host } catch { return null } }
+  const podHost     = (() => { try { return new URL(webid).host } catch { return webid } })()
+  const storageHost = resolveHost(storage)
+  const inboxAbs    = (() => { if (!inbox) return null; try { return new URL(inbox, webid).href } catch { return null } })()
+  const issuerHost  = resolveHost(oidcIssuer)
+  const isOwn       = identity?.id === webid
 
   if (editable.loading) return html`<div style=${{ color: 'var(--muted)' }}>Loading WebID\u2026</div>`
   if (editable.error && !editable.data) return html`<div class="err">${editable.error}</div>`
@@ -866,6 +898,32 @@ function ProfileView({ identity }) {
               </div>
             </div>
           </div>
+        </div>
+        <div class="stat-row">
+          <div class="stat">
+            <div class="stat-label">Pod</div>
+            <div class="stat-value"><code>${podHost}</code></div>
+          </div>
+          ${storageHost && html`
+            <div class="stat">
+              <div class="stat-label">Storage</div>
+              <div class="stat-value"><code>${storageHost}</code></div>
+            </div>`}
+          ${inboxAbs && html`
+            <div class="stat">
+              <div class="stat-label">Inbox</div>
+              <div class="stat-value"><a href=${inboxAbs} target="_blank" rel="noopener"><${Icon} name="mail" size=${12} /> Open</a></div>
+            </div>`}
+          ${issuerHost && html`
+            <div class="stat">
+              <div class="stat-label">Sign-in via</div>
+              <div class="stat-value"><code>${issuerHost}</code></div>
+            </div>`}
+          ${isOwn && html`
+            <div class="stat">
+              <div class="stat-label">Status</div>
+              <div class="stat-value verified"><${Icon} name="check-sq" size=${13} /> Verified you</div>
+            </div>`}
         </div>
         <div class="card"><h2 class="section-title">Bio</h2><p class="prose">${FBio(bio, isViewing ? 'No bio in this WebID' : 'Click to add a bio (writes to vcard:note)', (v) => set('bio', v))}</p></div>
       </div>
