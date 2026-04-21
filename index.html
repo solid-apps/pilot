@@ -724,6 +724,80 @@ async function createPodResource({ webid, relPath, seed, namespace, predicateLoc
   return { ok: true, url: newUrl }
 }
 
+// Add a new solid:TypeRegistration entry to a JSON-LD TypeIndex.
+// Returns the fragment id used for the new entry.
+async function addTypeRegistration(typeIndexUrl, { forClass, instance }) {
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  const res = await fetcher(typeIndexUrl, { headers: { Accept: 'application/ld+json' } })
+  if (!res.ok) throw new Error(`GET TypeIndex ${res.status} ${res.statusText}`)
+  const ti = await res.json()
+
+  const ctx = (typeof ti['@context'] === 'object' && !Array.isArray(ti['@context'])) ? ti['@context'] : (ti['@context'] = {})
+  if (!Object.values(ctx).includes('http://www.w3.org/ns/solid/terms#')) ctx.solid = 'http://www.w3.org/ns/solid/terms#'
+  if (!Object.values(ctx).includes('http://schema.org/')) ctx.schema = 'http://schema.org/'
+
+  const items = Array.isArray(ti['schema:itemListElement']) ? ti['schema:itemListElement'] : (ti['schema:itemListElement'] = [])
+  const base = '#reg-' + ((instance.split(/[#/]/).filter(Boolean).pop() || 'tracker').replace(/-data\.jsonld$/, '').replace(/[^\w-]/g, '') || 'tracker')
+  let id = base, i = 2
+  while (items.some(e => e && e['@id'] === id)) id = `${base}-${i++}`
+
+  items.push({
+    '@id': id,
+    '@type': 'solid:TypeRegistration',
+    'solid:forClass': { '@id': forClass },
+    'solid:instance':  { '@id': instance },
+  })
+
+  const putRes = await fetcher(typeIndexUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/ld+json' },
+    body: JSON.stringify(ti, null, 2),
+  })
+  if (!putRes.ok) throw new Error(`PUT TypeIndex ${putRes.status} ${putRes.statusText}`)
+  return id
+}
+
+// Create a new wf:Tracker data file and register it in the TypeIndex.
+async function createTracker({ webid, typeIndexUrl, name }) {
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  const podRoot = webid.replace(/#.*$/, '').replace(/[^/]*$/, '')
+  const slug = name.toLowerCase().replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '')
+  if (!slug) throw new Error('invalid tracker name')
+  const dataUrl = `${podRoot}public/tracker/${slug}-data.jsonld`
+
+  const seed = {
+    '@context': {
+      ical: 'http://www.w3.org/2002/12/cal/ical#',
+      wf:   'http://www.w3.org/2005/01/wf/flow#',
+      dct:  'http://purl.org/dc/terms/',
+      summary: 'ical:summary', status: 'ical:status',
+      created: 'dct:created', modified: 'ical:lastModified',
+      title: 'dct:title', initialState: 'wf:initialState', issue: 'wf:issue',
+      Tracker: 'wf:Tracker', Vtodo: 'ical:Vtodo',
+    },
+    '@id': '#this',
+    '@type': 'Tracker',
+    title: name,
+    created: new Date().toISOString(),
+    initialState: 'NEEDS-ACTION',
+    issue: [],
+  }
+
+  const r1 = await fetcher(dataUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/ld+json' },
+    body: JSON.stringify(seed, null, 2),
+  })
+  if (!r1.ok) throw new Error(`PUT tracker data ${r1.status} ${r1.statusText}`)
+
+  await addTypeRegistration(typeIndexUrl, {
+    forClass: 'http://www.w3.org/2005/01/wf/flow#Tracker',
+    instance: dataUrl + '#this',
+  })
+
+  return dataUrl + '#this'
+}
+
 async function putJsonLd(url, body) {
   const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
   const r = await fetcher(url, {
@@ -1262,6 +1336,22 @@ function TasksView({ identity, hideCompleted, setHideCompleted }) {
   const webid = identity?.type === 'solid' ? identity.id : null
   const ti = useTypeIndex(webid)
   const urls = findRegistrations(ti.data, TRACKER_CLASS).map(r => r.instance).filter(Boolean)
+  const [creatingTracker, setCreatingTracker] = useState(false)
+  const [createErr, setCreateErr] = useState(null)
+
+  const onAddTracker = async () => {
+    const name = prompt('Tracker name (e.g. "Work", "Groceries"):')
+    if (!name || !name.trim()) return
+    const typeIndexUrl = ti.data?.typeIndexUrl
+    if (!typeIndexUrl) { setCreateErr('TypeIndex not yet loaded — click Create in Settings first.'); return }
+    setCreatingTracker(true); setCreateErr(null)
+    try {
+      await createTracker({ webid, typeIndexUrl, name: name.trim() })
+      window.location.reload()
+    } catch (e) {
+      setCreateErr(e.message); setCreatingTracker(false)
+    }
+  }
 
   if (!webid) return html`
     <div>
@@ -1275,18 +1365,22 @@ function TasksView({ identity, hideCompleted, setHideCompleted }) {
 
   return html`
     <div>
-      <div style=${{ marginBottom: '14px', fontSize: '12px', color: 'var(--muted)', display: 'flex', gap: '8px', alignItems: 'center' }}>
+      <div style=${{ marginBottom: '14px', fontSize: '12px', color: 'var(--muted)', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
         <span class="island-badge" style=${{ background: '#d1fae5', color: '#065f46' }}>discovery</span>
         <span>${status}</span>
-        <label style=${{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', color: 'var(--text)' }}>
+        <button class="podsetup-btn" disabled=${creatingTracker || ti.loading} onClick=${onAddTracker} style=${{ marginLeft: 'auto' }}>
+          ${creatingTracker ? 'Creating…' : '+ New Tracker'}
+        </button>
+        <label style=${{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', color: 'var(--text)' }}>
           <input type="checkbox" checked=${hideCompleted} onChange=${(e) => setHideCompleted(e.target.checked)} style=${{ accentColor: '#6366f1' }} />
           <span>Hide completed</span>
         </label>
       </div>
+      ${createErr && html`<div class="podsetup-err" style=${{ marginBottom: '14px' }}>${createErr}</div>`}
       <h1 class="page-title">Tasks</h1>
       <p class="page-sub">Discovered via your TypeIndex. All edits PUT back to your pod.</p>
       ${urls.length === 0 && !ti.loading
-        ? html`<div class="card" style=${{ marginTop: '18px', color: 'var(--muted)' }}>No <code>wf:Tracker</code> registrations in your TypeIndex yet.</div>`
+        ? html`<div class="card" style=${{ marginTop: '18px', color: 'var(--muted)' }}>No <code>wf:Tracker</code> registrations in your TypeIndex yet. Click <strong>+ New Tracker</strong> above to create one.</div>`
         : html`<div class="columns">
             ${urls.map(u => html`<${TrackerColumn} key=${u} url=${u} hideCompleted=${hideCompleted} />`)}
           </div>`}
