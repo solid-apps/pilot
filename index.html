@@ -737,7 +737,11 @@ async function addTypeRegistration(typeIndexUrl, { forClass, instance }) {
   if (!Object.values(ctx).includes('http://schema.org/')) ctx.schema = 'http://schema.org/'
 
   const items = Array.isArray(ti['schema:itemListElement']) ? ti['schema:itemListElement'] : (ti['schema:itemListElement'] = [])
-  const base = '#reg-' + ((instance.split(/[#/]/).filter(Boolean).pop() || 'tracker').replace(/-data\.jsonld$/, '').replace(/[^\w-]/g, '') || 'tracker')
+  // Derive a readable fragment from the instance filename, not the fragment.
+  // e.g. https://host/public/tracker/work-data.jsonld#this → "work"
+  const stem = ((instance.split('#')[0].split('/').pop() || '')
+                  .replace(/-data\.jsonld$/, '').replace(/\.jsonld$/, '').replace(/[^\w-]/g, '')) || 'tracker'
+  const base = '#reg-' + stem
   let id = base, i = 2
   while (items.some(e => e && e['@id'] === id)) id = `${base}-${i++}`
 
