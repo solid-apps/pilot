@@ -275,6 +275,13 @@
     transition: transform .12s, box-shadow .12s;
   }
   .podsetup-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(99,102,241,.35); }
+  .podsetup-btn:disabled { opacity: 0.7; cursor: default; transform: none; box-shadow: 0 4px 14px rgba(99,102,241,.18); }
+  .podsetup-err {
+    margin-top: 8px; padding: 8px 10px; border-radius: 6px;
+    background: #fee2e2; color: #991b1b;
+    font: 400 12px/1.45 ui-monospace, SFMono-Regular, monospace;
+    white-space: pre-wrap; word-break: break-word;
+  }
   .pronoun { font: 400 14px/1; color: #6366f1; }
   .facts { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: #444; }
   @media (max-width: 600px) { .facts { grid-template-columns: 1fr; } }
@@ -637,6 +644,84 @@ async function fetchJsonLd(url) {
   if (!ct.includes('ld+json') && !ct.includes('application/json'))
     throw new Error(`pod returned ${ct} (need JSON-LD)`)
   return res.json()
+}
+
+// --- Pod-setup write helpers (Phase 2: HTML-WebID branch) -----------------
+
+// Add a predicate to the JSON-LD island inside an HTML WebID document.
+// Preserves all surrounding HTML byte-for-byte; only the JSON inside the
+// <script type="application/ld+json"> block changes.
+async function addPredicateToHtmlWebid(docUrl, frag, namespace, predicateLocal, valueRef) {
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  const res = await fetcher(docUrl, { headers: { Accept: 'text/html' } })
+  if (!res.ok) throw new Error(`GET ${res.status} ${res.statusText}`)
+  const ct = (res.headers.get('content-type') || '').toLowerCase()
+  if (!ct.includes('text/html')) throw new Error(`expected text/html, got ${ct || 'unknown'}`)
+  const html = await res.text()
+
+  const islandRe = /<script\s+type=["']application\/ld\+json["']\s*>([\s\S]*?)<\/script>/i
+  const m = html.match(islandRe)
+  if (!m) throw new Error('no <script type="application/ld+json"> island in HTML')
+  let json
+  try { json = JSON.parse(m[1].trim()) } catch (e) { throw new Error('island JSON parse: ' + e.message) }
+
+  // Pick or add a prefix for the namespace
+  const ctx = (typeof json['@context'] === 'object' && !Array.isArray(json['@context']))
+            ? json['@context'] : (json['@context'] = {})
+  let prefix = null
+  for (const [p, ns] of Object.entries(ctx)) { if (ns === namespace) { prefix = p; break } }
+  if (!prefix) {
+    prefix = predicateLocal === 'preferencesFile' ? 'pim' : 'solid'
+    ctx[prefix] = namespace
+  }
+  const key = prefix + ':' + predicateLocal
+
+  // Find the matching subject (by frag) — fall back to top-level
+  const subjects = Array.isArray(json['@graph']) ? json['@graph'] : [json]
+  const subj = (frag && subjects.find(s => s['@id'] === frag)) || subjects[0]
+  subj[key] = { '@id': valueRef }
+
+  // Re-serialize and splice back
+  const newIsland = '\n' + JSON.stringify(json, null, 2) + '\n'
+  const newHtml = html.replace(islandRe, (full, body) => full.replace(body, newIsland))
+
+  const putRes = await fetcher(docUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'text/html' },
+    body: newHtml,
+  })
+  if (!putRes.ok) throw new Error(`PUT WebID failed: ${putRes.status} ${putRes.statusText}`)
+}
+
+// Create a pod resource (PUT seed) and link it from the WebID.
+// Returns { ok: true } on full success, or { ok: false, message } on failure.
+async function createPodResource({ webid, relPath, seed, namespace, predicateLocal }) {
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  const docUrl = webid.replace(/#.*$/, '')
+  const frag   = webid.includes('#') ? '#' + webid.split('#')[1] : null
+  const newUrl = new URL(relPath, docUrl).href
+
+  // 1. PUT the seed file
+  const r1 = await fetcher(newUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/ld+json' },
+    body: JSON.stringify(seed, null, 2),
+  })
+  if (!r1.ok) return { ok: false, message: `Create file failed: ${r1.status} ${r1.statusText}` }
+
+  // 2. Update WebID to link the file
+  const head = await fetcher(docUrl, { method: 'HEAD' }).catch(() => null)
+  const ct = (head && head.headers.get('content-type') || '').toLowerCase()
+  const isHtml = ct.includes('text/html') || docUrl.endsWith('/')
+  if (!isHtml) {
+    return { ok: false, message: `File created at ${newUrl}. WebID is RDF (${ct || 'unknown'}); SPARQL PATCH not yet implemented — add this manually:\n\n  <${frag || webid}> ${predicateLocal === 'preferencesFile' ? 'space' : 'solid'}:${predicateLocal} <${relPath}> .` }
+  }
+  try {
+    await addPredicateToHtmlWebid(docUrl, frag, namespace, predicateLocal, relPath)
+  } catch (e) {
+    return { ok: false, message: `File created at ${newUrl}, but linking failed: ${e.message}` }
+  }
+  return { ok: true, url: newUrl }
 }
 
 async function putJsonLd(url, body) {
@@ -1230,9 +1315,44 @@ function SettingsView({ identity, theme, setTheme }) {
   const resolveAbs = (v) => { if (!v) return null; try { return new URL(v, liveWebid).href } catch { return null } }
   const prefsUrl = resolveAbs(podPrefs)
   const tiUrl    = resolveAbs(podTypeIndex)
-  const stubCreate = (kind, suggestedPath) => () => {
-    alert(`TODO (phase 2): create ${kind} at ${suggestedPath} and link it from your WebID via PATCH.`)
+  const [creating, setCreating] = useState({})  // { prefs?: 'busy'|'done'|'error', ti?: ... }
+  const [errors, setErrors] = useState({})       // { prefs?: msg, ti?: msg }
+
+  const PREFS_SEED = { '@context': { 'solid': 'http://www.w3.org/ns/solid/terms#' }, '@id': '#prefs', '@type': 'solid:Preferences', 'solid:publicTypeIndex': { '@id': 'publicTypeIndex.jsonld' } }
+  const TI_SEED    = { '@context': { 'solid': 'http://www.w3.org/ns/solid/terms#' }, '@id': '#typeindex', '@type': ['solid:TypeIndex', 'solid:UnlistedDocument'] }
+
+  const create = (key, opts) => async () => {
+    setCreating(s => ({ ...s, [key]: 'busy' }))
+    setErrors(s => ({ ...s, [key]: null }))
+    try {
+      const result = await createPodResource(opts)
+      if (result.ok) {
+        setCreating(s => ({ ...s, [key]: 'done' }))
+        setTimeout(() => window.location.reload(), 800)
+      } else {
+        setCreating(s => ({ ...s, [key]: 'error' }))
+        setErrors(s => ({ ...s, [key]: result.message }))
+      }
+    } catch (e) {
+      setCreating(s => ({ ...s, [key]: 'error' }))
+      setErrors(s => ({ ...s, [key]: e.message }))
+    }
   }
+
+  const createPrefs = create('prefs', {
+    webid: liveWebid,
+    relPath: 'settings/prefs.jsonld',
+    seed: PREFS_SEED,
+    namespace: 'http://www.w3.org/ns/pim/space#',
+    predicateLocal: 'preferencesFile',
+  })
+  const createTI = create('ti', {
+    webid: liveWebid,
+    relPath: 'settings/publicTypeIndex.jsonld',
+    seed: TI_SEED,
+    namespace: 'http://www.w3.org/ns/solid/terms#',
+    predicateLocal: 'publicTypeIndex',
+  })
 
   useEffect(() => { if (webid) localStorage.setItem(WEBID_KEY, webid); else localStorage.removeItem(WEBID_KEY) }, [webid])
 
@@ -1254,22 +1374,28 @@ function SettingsView({ identity, theme, setTheme }) {
           <div>
             <div class="settings-label">Preferences file</div>
             <div class="settings-help">Where pilot will store theme + per-app prefs (<code>space:preferencesFile</code>).</div>
+            ${errors.prefs && html`<div class="podsetup-err">${errors.prefs}</div>`}
           </div>
           <div style=${{ textAlign: 'right' }}>
             ${prefsUrl
               ? html`<div class="podsetup-found"><${Icon} name="check-sq" size=${14} /> <a href=${prefsUrl} target="_blank" rel="noopener">${prefsUrl.replace(/^https?:\/\//,'')}</a></div>`
-              : html`<button class="podsetup-btn" onClick=${stubCreate('preferences file', '/settings/prefs.ttl')}>Create</button>`}
+              : html`<button class="podsetup-btn" disabled=${creating.prefs === 'busy' || creating.prefs === 'done'} onClick=${createPrefs}>
+                  ${creating.prefs === 'busy' ? '\u2026 Creating' : creating.prefs === 'done' ? '\u2713 Created — reloading' : 'Create'}
+                </button>`}
           </div>
         </div>
         <div class="settings-row">
           <div>
             <div class="settings-label">Public TypeIndex</div>
             <div class="settings-help">Where apps discover where your data lives (<code>solid:publicTypeIndex</code>).</div>
+            ${errors.ti && html`<div class="podsetup-err">${errors.ti}</div>`}
           </div>
           <div style=${{ textAlign: 'right' }}>
             ${tiUrl
               ? html`<div class="podsetup-found"><${Icon} name="check-sq" size=${14} /> <a href=${tiUrl} target="_blank" rel="noopener">${tiUrl.replace(/^https?:\/\//,'')}</a></div>`
-              : html`<button class="podsetup-btn" onClick=${stubCreate('public TypeIndex', '/settings/publicTypeIndex.ttl')}>Create</button>`}
+              : html`<button class="podsetup-btn" disabled=${creating.ti === 'busy' || creating.ti === 'done'} onClick=${createTI}>
+                  ${creating.ti === 'busy' ? '\u2026 Creating' : creating.ti === 'done' ? '\u2713 Created — reloading' : 'Create'}
+                </button>`}
           </div>
         </div>
       </div>`}
