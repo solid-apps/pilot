@@ -646,6 +646,32 @@ async function fetchJsonLd(url) {
   return res.json()
 }
 
+// --- Per-pod preferences (read/write prefs.jsonld) -------------------------
+
+const PILOT_NS = 'https://solid-apps.github.io/pilot/ns#'
+
+function readPilotKey(doc, key) {
+  if (!doc) return undefined
+  return doc['pilot:' + key] ?? doc[PILOT_NS + key]
+}
+
+async function writePilotPrefs(prefsUrl, patch) {
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  const r = await fetcher(prefsUrl, { headers: { Accept: 'application/ld+json' } })
+  if (!r.ok) throw new Error(`GET prefs ${r.status} ${r.statusText}`)
+  const doc = await r.json()
+  const ctx = (typeof doc['@context'] === 'object' && !Array.isArray(doc['@context']))
+              ? doc['@context'] : (doc['@context'] = {})
+  if (!Object.values(ctx).includes(PILOT_NS)) ctx.pilot = PILOT_NS
+  for (const [k, v] of Object.entries(patch)) doc['pilot:' + k] = v
+  const put = await fetcher(prefsUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/ld+json' },
+    body: JSON.stringify(doc, null, 2),
+  })
+  if (!put.ok) throw new Error(`PUT prefs ${put.status} ${put.statusText}`)
+}
+
 // --- Pod-setup write helpers (Phase 2: HTML-WebID branch) -----------------
 
 // Add a predicate to the JSON-LD island inside an HTML WebID document.
@@ -1696,6 +1722,65 @@ function App() {
   useEffect(() => { if (VIEWS[route]) localStorage.setItem(LAST_ROUTE_KEY, route) }, [route])
   useEffect(() => { localStorage.setItem(THEME_KEY, theme); applyTheme(theme) }, [theme])
   useEffect(() => { localStorage.setItem(HIDE_KEY, hideCompleted ? '1' : '0') }, [hideCompleted])
+
+  // --- prefs.jsonld sync --------------------------------------------------
+  // When signed in, mirror theme + hideCompleted with the prefs file named
+  // on the WebID via pim:preferencesFile. localStorage stays as the
+  // first-paint / offline cache; the pod is the cross-device source.
+  const prefsUrlRef = useRef(null)
+  const podPrefsRef = useRef({ theme: null, hideCompleted: null })
+
+  useEffect(() => {
+    if (!identity || identity.type !== 'solid') {
+      prefsUrlRef.current = null
+      podPrefsRef.current = { theme: null, hideCompleted: null }
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        // Resolve prefs URL straight from the raw WebID doc — normalizeProfile
+        // doesn't expose pim:preferencesFile, so read the predicate directly.
+        const webidDoc = await fetchJsonLd(identity.id.replace(/#.*$/, ''))
+        const frag     = identity.id.includes('#') ? identity.id.split('#')[1] : null
+        const graph    = Array.isArray(webidDoc['@graph']) ? webidDoc['@graph']
+                        : Array.isArray(webidDoc) ? webidDoc : [webidDoc]
+        const me       = (frag ? graph.find(n => (n['@id'] || '').endsWith('#' + frag)) : null) || graph[0]
+        const prefsRef = me?.['pim:preferencesFile'] || me?.['http://www.w3.org/ns/pim/space#preferencesFile']
+        const prefsRel = typeof prefsRef === 'string' ? prefsRef : prefsRef?.['@id']
+        if (!prefsRel) return
+        const prefsUrl = new URL(prefsRel, identity.id).href
+        const doc      = await fetchJsonLd(prefsUrl)
+        if (cancelled) return
+        prefsUrlRef.current = prefsUrl
+        const podTheme = readPilotKey(doc, 'theme')
+        const podHide  = readPilotKey(doc, 'hideCompleted')
+        podPrefsRef.current = {
+          theme: typeof podTheme === 'string' ? podTheme : null,
+          hideCompleted: typeof podHide === 'boolean' ? podHide : null,
+        }
+        if (podPrefsRef.current.theme && podPrefsRef.current.theme !== theme) setTheme(podPrefsRef.current.theme)
+        if (typeof podPrefsRef.current.hideCompleted === 'boolean' && podPrefsRef.current.hideCompleted !== hideCompleted) setHideCompleted(podPrefsRef.current.hideCompleted)
+      } catch {
+        // prefs missing or unreadable — stay with localStorage
+      }
+    })()
+    return () => { cancelled = true }
+  }, [identity?.id])
+
+  useEffect(() => {
+    if (!prefsUrlRef.current) return
+    if (podPrefsRef.current.theme === theme && podPrefsRef.current.hideCompleted === hideCompleted) return
+    const t = setTimeout(async () => {
+      try {
+        await writePilotPrefs(prefsUrlRef.current, { theme, hideCompleted })
+        podPrefsRef.current = { theme, hideCompleted }
+      } catch {
+        // swallow — user-visible retry on next change
+      }
+    }, 400)
+    return () => clearTimeout(t)
+  }, [theme, hideCompleted])
 
   // Global shortcuts: ⌘K opens palette; ⌘1/2/3 jump to routes
   useEffect(() => {
