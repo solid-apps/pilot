@@ -813,10 +813,31 @@ async function addTypeRegistration(typeIndexUrl, { forClass, instance }) {
   return id
 }
 
+// Resolve a pod's storage URL from the WebID profile's pim:storage predicate.
+// Falls back to the WebID's parent URL only if the profile doesn't expose one
+// — which is wrong for pods with WebID at /profile/card[.jsonld] (resolves to
+// /profile/) but matches today's behaviour for personal-site WebIDs at root.
+async function resolvePodStorage(webid) {
+  try {
+    const webidDoc = await fetchJsonLd(webid.replace(/#.*$/, ''))
+    const frag    = webid.includes('#') ? webid.split('#')[1] : null
+    const graph   = Array.isArray(webidDoc['@graph']) ? webidDoc['@graph']
+                  : Array.isArray(webidDoc) ? webidDoc : [webidDoc]
+    const me      = (frag ? graph.find(n => (n['@id'] || '').endsWith('#' + frag)) : null) || graph[0]
+    const stRef   = me?.['pim:storage']
+                 || me?.['http://www.w3.org/ns/pim/space#storage']
+                 || me?.['storage']    // bare alias used by JSS-generated profiles
+    const stRel   = typeof stRef === 'string' ? stRef : stRef?.['@id']
+    if (stRel) return new URL(stRel, webid).href
+  } catch { /* fall through to webid-dirname heuristic */ }
+  return webid.replace(/#.*$/, '').replace(/[^/]*$/, '')
+}
+
 // Create a new wf:Tracker data file and register it in the TypeIndex.
 async function createTracker({ webid, typeIndexUrl, name }) {
   const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
-  const podRoot = webid.replace(/#.*$/, '').replace(/[^/]*$/, '')
+  let podRoot = await resolvePodStorage(webid)
+  if (!podRoot.endsWith('/')) podRoot += '/'
   const slug = name.toLowerCase().replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '')
   if (!slug) throw new Error('invalid tracker name')
   const dataUrl = `${podRoot}public/tracker/${slug}-data.jsonld`
