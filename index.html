@@ -548,6 +548,7 @@
 import { h, render } from 'preact'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'preact/hooks'
 import htm from 'htm'
+import { addRegistration, removeRegistration } from 'https://esm.sh/@solid-helper/core@0.0.2/type-index'
 
 const html = htm.bind(h)
 
@@ -790,36 +791,19 @@ async function createPodResource({ webid, relPath, seed, namespace, predicateLoc
 
 // Add a new solid:TypeRegistration entry to a JSON-LD TypeIndex.
 // Returns the fragment id used for the new entry.
+// Pure JSON-LD mutation is delegated to @solid-helper/core.
 async function addTypeRegistration(typeIndexUrl, { forClass, instance }) {
   const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
   const res = await fetcher(typeIndexUrl, { headers: { Accept: 'application/ld+json' } })
   if (!res.ok) throw new Error(`GET TypeIndex ${res.status} ${res.statusText}`)
   const ti = await res.json()
 
-  const ctx = (typeof ti['@context'] === 'object' && !Array.isArray(ti['@context'])) ? ti['@context'] : (ti['@context'] = {})
-  if (!Object.values(ctx).includes('http://www.w3.org/ns/solid/terms#')) ctx.solid = 'http://www.w3.org/ns/solid/terms#'
-  if (!Object.values(ctx).includes('http://schema.org/')) ctx.schema = 'http://schema.org/'
-
-  const items = Array.isArray(ti['schema:itemListElement']) ? ti['schema:itemListElement'] : (ti['schema:itemListElement'] = [])
-  // Derive a readable fragment from the instance filename, not the fragment.
-  // e.g. https://host/public/tracker/work-data.jsonld#this → "work"
-  const stem = ((instance.split('#')[0].split('/').pop() || '')
-                  .replace(/-data\.jsonld$/, '').replace(/\.jsonld$/, '').replace(/[^\w-]/g, '')) || 'tracker'
-  const base = '#reg-' + stem
-  let id = base, i = 2
-  while (items.some(e => e && e['@id'] === id)) id = `${base}-${i++}`
-
-  items.push({
-    '@id': id,
-    '@type': 'solid:TypeRegistration',
-    'solid:forClass': { '@id': forClass },
-    'solid:instance':  { '@id': instance },
-  })
+  const { typeIndex: updated, id } = addRegistration(ti, { forClass, instance })
 
   const putRes = await fetcher(typeIndexUrl, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/ld+json' },
-    body: JSON.stringify(ti, null, 2),
+    body: JSON.stringify(updated, null, 2),
   })
   if (!putRes.ok) throw new Error(`PUT TypeIndex ${putRes.status} ${putRes.statusText}`)
   return id
@@ -827,26 +811,20 @@ async function addTypeRegistration(typeIndexUrl, { forClass, instance }) {
 
 // Remove a solid:TypeRegistration entry from a JSON-LD TypeIndex by instance URL.
 // Returns true if an entry was removed, false if no match was found.
+// Pure JSON-LD mutation is delegated to @solid-helper/core.
 async function removeTypeRegistration(typeIndexUrl, instanceUrl) {
   const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
   const res = await fetcher(typeIndexUrl, { headers: { Accept: 'application/ld+json' } })
   if (!res.ok) throw new Error(`GET TypeIndex ${res.status} ${res.statusText}`)
   const ti = await res.json()
 
-  const items = Array.isArray(ti['schema:itemListElement']) ? ti['schema:itemListElement'] : []
-  const matches = (entry) => {
-    const inst = entry?.['solid:instance'] || entry?.['http://www.w3.org/ns/solid/terms#instance']
-    const id   = typeof inst === 'string' ? inst : inst?.['@id']
-    return id === instanceUrl
-  }
-  const kept = items.filter(e => !matches(e))
-  if (kept.length === items.length) return false
-  ti['schema:itemListElement'] = kept
+  const { typeIndex: updated, removed } = removeRegistration(ti, { instance: instanceUrl })
+  if (!removed) return false
 
   const putRes = await fetcher(typeIndexUrl, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/ld+json' },
-    body: JSON.stringify(ti, null, 2),
+    body: JSON.stringify(updated, null, 2),
   })
   if (!putRes.ok) throw new Error(`PUT TypeIndex ${putRes.status} ${putRes.statusText}`)
   return true
