@@ -873,7 +873,12 @@ async function fetchTypeIndex(webid) {
   const frag = webid.includes('#') ? webid.split('#')[1] : null
   const me = (frag ? graph.find(n => (n['@id'] || '').endsWith('#' + frag)) : null) || graph[0]
 
-  const tiRef = me['solid:publicTypeIndex'] || me['http://www.w3.org/ns/solid/terms#publicTypeIndex']
+  // JSS-generated profiles alias the predicate as a bare key via @context
+  // (e.g. { "publicTypeIndex": "settings/publicTypeIndex.jsonld" } rather
+  // than "solid:publicTypeIndex"); accept any of the three shapes.
+  const tiRef = me['solid:publicTypeIndex']
+             || me['http://www.w3.org/ns/solid/terms#publicTypeIndex']
+             || me['publicTypeIndex']
   const tiId = idOf(tiRef)
   if (!tiId) throw new Error('no solid:publicTypeIndex on WebID')
 
@@ -1772,7 +1777,9 @@ function App() {
         const graph    = Array.isArray(webidDoc['@graph']) ? webidDoc['@graph']
                         : Array.isArray(webidDoc) ? webidDoc : [webidDoc]
         const me       = (frag ? graph.find(n => (n['@id'] || '').endsWith('#' + frag)) : null) || graph[0]
-        const prefsRef = me?.['pim:preferencesFile'] || me?.['http://www.w3.org/ns/pim/space#preferencesFile']
+        const prefsRef = me?.['pim:preferencesFile']
+                       || me?.['http://www.w3.org/ns/pim/space#preferencesFile']
+                       || me?.['preferencesFile']   // bare alias (JSS-generated profiles)
         const prefsRel = typeof prefsRef === 'string' ? prefsRef : prefsRef?.['@id']
         if (!prefsRel) return
         const prefsUrl = new URL(prefsRel, identity.id).href
