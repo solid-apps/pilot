@@ -38,7 +38,8 @@
   "imports": {
     "preact":        "./vendor/preact.js",
     "preact/hooks":  "./vendor/hooks.js",
-    "htm":           "./vendor/htm.js"
+    "htm":           "./vendor/htm.js",
+    "@solid-helper/core/type-index": "https://esm.sh/@solid-helper/core@0.0.2/type-index"
   }
 }
 </script>
@@ -548,7 +549,7 @@
 import { h, render } from 'preact'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'preact/hooks'
 import htm from 'htm'
-import { addRegistration, removeRegistration } from 'https://esm.sh/@solid-helper/core@0.0.2/type-index'
+import { addRegistration, removeRegistration } from '@solid-helper/core/type-index'
 
 const html = htm.bind(h)
 
