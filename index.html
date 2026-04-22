@@ -405,6 +405,18 @@
   /* Tasks kanban — kanban styles + drag/drop come from tracker-pane.js
      (auto-injects .tp-* namespaced styles on first mount) */
   .columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 18px; }
+  .tracker-wrap { position: relative; }
+  .tracker-wrap .tracker-delete {
+    position: absolute; top: 8px; right: 8px; z-index: 2;
+    width: 22px; height: 22px; padding: 0; line-height: 18px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); background: var(--card); color: var(--muted);
+    border-radius: 50%; font-size: 16px; cursor: pointer;
+    opacity: 0; transition: opacity .12s, color .12s, border-color .12s;
+  }
+  .tracker-wrap:hover .tracker-delete,
+  .tracker-wrap .tracker-delete:focus-visible { opacity: 1; }
+  .tracker-wrap .tracker-delete:hover { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
   .err { background: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 8px; font: 400 13px/1.4 'Inter'; }
 
   /* Onboarding */
@@ -811,6 +823,47 @@ async function addTypeRegistration(typeIndexUrl, { forClass, instance }) {
   })
   if (!putRes.ok) throw new Error(`PUT TypeIndex ${putRes.status} ${putRes.statusText}`)
   return id
+}
+
+// Remove a solid:TypeRegistration entry from a JSON-LD TypeIndex by instance URL.
+// Returns true if an entry was removed, false if no match was found.
+async function removeTypeRegistration(typeIndexUrl, instanceUrl) {
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  const res = await fetcher(typeIndexUrl, { headers: { Accept: 'application/ld+json' } })
+  if (!res.ok) throw new Error(`GET TypeIndex ${res.status} ${res.statusText}`)
+  const ti = await res.json()
+
+  const items = Array.isArray(ti['schema:itemListElement']) ? ti['schema:itemListElement'] : []
+  const matches = (entry) => {
+    const inst = entry?.['solid:instance'] || entry?.['http://www.w3.org/ns/solid/terms#instance']
+    const id   = typeof inst === 'string' ? inst : inst?.['@id']
+    return id === instanceUrl
+  }
+  const kept = items.filter(e => !matches(e))
+  if (kept.length === items.length) return false
+  ti['schema:itemListElement'] = kept
+
+  const putRes = await fetcher(typeIndexUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/ld+json' },
+    body: JSON.stringify(ti, null, 2),
+  })
+  if (!putRes.ok) throw new Error(`PUT TypeIndex ${putRes.status} ${putRes.statusText}`)
+  return true
+}
+
+// Delete a tracker: always remove the TypeIndex entry; optionally also DELETE
+// the underlying data file. The instance URL typically ends in #this — we
+// strip the fragment to address the file resource.
+async function deleteTracker({ typeIndexUrl, instanceUrl, purgeData = false }) {
+  const fetcher = (window.xlogin && window.xlogin.authFetch) || fetch
+  await removeTypeRegistration(typeIndexUrl, instanceUrl)
+  if (purgeData) {
+    const fileUrl = instanceUrl.replace(/#.*$/, '')
+    const r = await fetcher(fileUrl, { method: 'DELETE' })
+    // 404 is fine — the file may already be gone (orphan registration).
+    if (!r.ok && r.status !== 404) throw new Error(`DELETE data ${r.status} ${r.statusText}`)
+  }
 }
 
 // Resolve a pod's storage URL from the WebID profile's pim:storage predicate.
@@ -1435,6 +1488,30 @@ function TasksView({ identity, hideCompleted, setHideCompleted }) {
     }
   }
 
+  const onDeleteTracker = async (instanceUrl) => {
+    const typeIndexUrl = ti.data?.typeIndexUrl
+    if (!typeIndexUrl) return
+    // Pretty label: filename stem ("home-data" → "home"), falls back to the URL.
+    const label = (() => {
+      try { return (instanceUrl.split('#')[0].split('/').pop() || instanceUrl).replace(/-data\.jsonld$/, '').replace(/\.jsonld$/, '') }
+      catch { return instanceUrl }
+    })()
+    if (!confirm(`Remove tracker "${label}" from your TypeIndex?`)) return
+    // Second prompt — purge data file? Default OK = purge, Cancel = keep file.
+    const purgeData = confirm(
+      `Also delete the data file?\n\n` +
+      `OK   = delete the file at ${instanceUrl.replace(/#.*$/, '')}\n` +
+      `Cancel = keep the file (orphan), only the registration is removed.`
+    )
+    setCreateErr(null)
+    try {
+      await deleteTracker({ typeIndexUrl, instanceUrl, purgeData })
+      window.location.reload()
+    } catch (e) {
+      setCreateErr(`Delete failed: ${e.message}`)
+    }
+  }
+
   if (!webid) return html`
     <div>
       <h1 class="page-title">Tasks</h1>
@@ -1464,7 +1541,13 @@ function TasksView({ identity, hideCompleted, setHideCompleted }) {
       ${urls.length === 0 && !ti.loading
         ? html`<div class="card" style=${{ marginTop: '18px', color: 'var(--muted)' }}>No <code>wf:Tracker</code> registrations in your TypeIndex yet. Click <strong>+ New Tracker</strong> above to create one.</div>`
         : html`<div class="columns">
-            ${urls.map(u => html`<${TrackerColumn} key=${u} url=${u} hideCompleted=${hideCompleted} />`)}
+            ${urls.map(u => html`
+              <div class="tracker-wrap" key=${u}>
+                <button class="tracker-delete" title="Delete tracker"
+                        onClick=${() => onDeleteTracker(u)}
+                        aria-label="Delete tracker">×</button>
+                <${TrackerColumn} url=${u} hideCompleted=${hideCompleted} />
+              </div>`)}
           </div>`}
     </div>`
 }
